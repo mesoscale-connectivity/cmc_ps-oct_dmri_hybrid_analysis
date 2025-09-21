@@ -1,0 +1,173 @@
+#!/usr/bin/env python
+
+
+# cmc_hybrid - runs hybrid modelling of dMRI and tractography
+#
+# Author: Silei Zhu, Saad Jbabdi, Amy Howard
+#
+# Copyright (C) 2025 University of Oxford
+# SHBASECOPYRIGHT
+
+import argparse
+
+def parse_cmdline_args():
+    p = argparse.ArgumentParser(description="CMC hybrid per-voxel processor")
+
+   # Compulsory arguments
+    p.add_argument("--psoct",required=True,nargs="+",
+                   help="psoct slides files")
+    p.add_argument("--bpx",required=True,
+                   help="location of the bedpostX folder")
+    p.add_argument("-o", "--out", required=True,
+                   help="prefix for output files")
+    # Optional arguments
+    p.add_argument("--roi", required=False, nargs=6, type=int,
+                   help="-roi <xmin> <xsize> <ymin> <ysize> <zmin> <zsize> : only look inside roi (using voxel coordinates). Inputting -1 for a size will set it to the full image extent for that dimension.")
+    p.add_argument("--mask", required=False, help="brain mask")
+    p.add_argument("-j", "--jobs", type=int,
+                   help="parallel workers (default=max available)")
+    p.add_argument("-s", "--scale", type=int, default=1,
+                   help="upsampling factor (e.g. 1, 2, 4, etc.)")
+    p.add_argument('--verbose', required=False, action='store_true',
+                    help='print out messages')
+    return p.parse_args()
+
+
+
+
+def main():
+    # Parse command-line arguments
+    args = parse_cmdline_args()
+    if args.verbose:
+        print("Begin.")
+    # ------------------------------------------------------------------------
+    # More imports here so that running --help doesn't do unnecessary imports
+    from fsl.data.image import Image
+    import os
+    from glob import glob
+    import numpy as np
+    from joblib import Parallel, delayed, parallel_backend
+    from functools import partial
+    from cmc_hybrid import utils
+    from cmc_hybrid import coordinate_mapping as cm
+    # ------------------------------------------------------------------------
+
+    # Find slides
+    if args.verbose:
+        print("...Read slides")
+    slide_files   = args.psoct #sorted(glob(os.path.join(args.psoct,'Orientation','Slice_???_EnAO_header.nii.gz')))
+    slides = [Image(sl) for sl in slide_files]
+
+    # Load image files from database
+    if args.verbose:
+        print("...Prepare brain mask...")
+    # Prepare mask
+    mask_img = utils.prepare_mask(args.mask, args.roi, args.scale)
+    mask     = mask_img.data
+
+    if args.verbose:
+        print(f"...new mask dimensions: shape={mask_img.shape}, pixdim={mask_img.pixdim}")
+
+    # Prepare voxels based on roi and mask
+    # voxels contains all the voxel coordinates within the mask and the roi
+    voxels = np.argwhere(mask)
+    if len(voxels)==0:
+        raise(Exception("Found no voxels to process. Please check the mask and roi definitions."))
+    if args.verbose:
+        print(f"...Processing {len(voxels)} voxels")
+
+    # voxels in dMRI space:
+    from fsl.transform.affine import concat, transform
+    mask2diff = concat(
+        Image(os.path.join(args.bpx,'nodif_brain_mask')).getAffine('world','voxel'),
+        mask_img.getAffine('voxel','world')
+    )
+    voxels_diff = transform(voxels, mask2diff)
+
+    # Global variables
+    # All the big 4D files go here
+    if args.verbose:
+        print("...Loading bpx samples")
+    ths = [] #[Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_th?samples.nii.gz')))]
+    phs = [] #[Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_ph?samples.nii.gz')))]
+    fs =  [] #[Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_f?samples.nii.gz')))]
+    if args.verbose:
+        print('......loaded')
+
+    # --------- Parallalised functions --------------- #
+    def process_voxel(vox_coord, ths, phs, fs):
+        x,y,z = vox_coord
+        th_samples = [th[x,y,z,:] for th in ths]
+        ph_samples = [ph[x,y,z,:] for ph in phs]
+        f_samples  = [f[x,y,z,:] for f in fs]
+        vecs       = [utils.pol2cart(th,ph) for th,ph in zip(th_samples, ph_samples)]
+        dyads      = [utils.make_dyads(v) for v in vecs]
+        return dyads
+
+    def process_voxel_hybrid(vox_coord, ths, phs, fs, slides, volume):
+        """
+        For now, simply find the slides that intersect, the pixels in the voxel, and count them
+        return the number of pixels in the voxel
+        """
+        # Get pixels and data
+        pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
+        # if empty, return
+        if len(pixgrid) == 0:
+            return np.array([0.,0.,0.])
+
+        # fudge orientation data
+        theta = utils.fudge_psoct_orientation(theta)
+        # turn theta into vector and re-code in diffusion space?
+        xform = cm.slide_to_volume(slides[0], volume)
+        vecs  = cm.angle_to_vector(theta, xform=xform)
+        dyad  = utils.make_dyads(vecs)
+        # calc_hybrid orientations
+        #x,y,z = vox_coord
+        #rescale x,y,z if scale is not 1
+        #th_samples = [th[x,y,z,:] for th in ths]
+        #ph_samples = [ph[x,y,z,:] for ph in phs]
+        #f_samples  = [f[x,y,z,:] for f in fs]
+        #h_vecs = fod.hybrid_fod(th_samples, ph_samples, f_samples, theta)
+
+        return dyad
+
+    # ------------------------------------------------------------------------------
+
+
+    # Run processing for each voxel (parallelise)
+    if args.jobs:
+        n_workers = args.jobs
+    else:
+        import multiprocessing as mp
+        n_workers = mp.cpu_count() - 1
+
+    # func = partial(process_voxel, ths=ths, phs=phs)
+    func = partial(process_voxel_hybrid, ths=ths, phs=phs, fs=fs, slides=slides, volume=mask_img)
+    results = []
+
+    with parallel_backend("threading", n_jobs=n_workers):
+        verbosity = 13 if args.verbose else 0
+        results = Parallel(verbose=verbosity)(delayed(func)(vox) for vox in voxels)
+
+    # Save output
+    print('...saving')
+    results = np.array(results)
+    print(results.shape)
+    tmp = np.zeros(mask.shape+(3,))
+    tmp = np.reshape(tmp, (-1,3))
+    tmp[mask.flatten()>0,:] = results
+    tmp = np.reshape(tmp, mask.shape+(3,))
+    Image(tmp, header=mask_img.header).save(args.out+f"_dyads")
+
+
+    # tmp = np.zeros(mask.shape).flatten()
+    # tmp[mask.flatten()>0] = results
+    # tmp = np.reshape(tmp, mask.shape)
+    # Image(tmp, header=mask_img.header).save(args.out)
+
+    # Finish.
+    print("Done.")
+
+
+if __name__ == '__main__':
+    main()
