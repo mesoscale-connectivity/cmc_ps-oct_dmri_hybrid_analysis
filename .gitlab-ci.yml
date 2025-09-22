@@ -1,0 +1,8 @@
+test:
+  image: python:3.12
+  tags:
+      - docker
+  script:
+    - pip install . pytest
+    - pytest -v .
+
