@@ -55,3 +55,10 @@ def test_upscale_image():
     scale = 2
     newimg = utils.upscale_image(img, scale)
     assert np.all(np.array(newimg.pixdim)==1.5)
+
+def test_vec_normalise():
+    x = np.random.randn(100,20)
+    n = np.sum((utils.vec_normalise(x, axis=0))**2, axis=0)
+    assert np.all(np.isclose(n,1.))
+    n = np.sum((utils.vec_normalise(x, axis=1))**2, axis=1)
+    assert np.all(np.isclose(n,1.))

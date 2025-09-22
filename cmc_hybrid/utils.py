@@ -43,6 +43,7 @@ def cart2pol(xyz):
     return th,ph
 # ----- SPHERICAL COORDS ----- #
 
+# ----- VECTOR STUFF --------- #
 def make_dyads(vecs):
     """calculate the dyadic vector average for a list of vectors
     len(vecs)=N, each vec is 3x1
@@ -53,7 +54,14 @@ def make_dyads(vecs):
     _,V = np.linalg.eigh(tens)
     return V[:,-1]
 
+def vec_normalise(x, axis=0):
+    """Normalise vectors to unit length
 
+    :param x: array
+    :param axis: direction of normalisation
+    :return: array
+    """
+    return x / np.linalg.norm(x, axis=axis, keepdims=True)
 
 def prepare_mask(maskfile, roi=None, scale=1):
     """Create mask based on existing mask, additional mask, and ROI definition

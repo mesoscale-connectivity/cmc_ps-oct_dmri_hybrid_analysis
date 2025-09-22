@@ -28,24 +28,25 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
     V = np.linalg.svd(vecs, full_matrices=False)[-1].T  # 3x3
 
     # 2) project vecs and bpx onto plane
-    v       = utils.pol2cart(th_samples, ph_samples)  # nx3
-    v_plane = v@V
-    vecs_plane = vecs@V
+    v          = utils.pol2cart(th_samples, ph_samples)  # nx3
+    v_plane    = utils.vec_normalise(v@V, 1)
+    vecs_plane = utils.vec_normalise(vecs@V, 1)
+
 
     # 3) argmax of cosine angle
-    a = (vecs_plane[:,:2] @ v_plane[:,:2].T)**2  # Nxn
-    #print(a)
+    a = (utils.vec_normalise(vecs_plane[:,:2],1) @ utils.vec_normalise(v_plane[:,:2],1).T)**2  # Nxn
     idx = np.argmax(a, axis=1)
 
-    new_vecs = np.concatenate((vecs_plane[:,:2],v_plane[idx,2][:,None]), axis=1)
+    new_vecs = np.concatenate((vecs_plane[:,:2], v_plane[idx,2][:,None]), axis=1)
     new_vecs = new_vecs@V.T
+    new_vecs = utils.vec_normalise(new_vecs, 1)
 
     # 4) return 3D vector
     return new_vecs
 
 # SPHERICAL HARMONICS STUFF
 from scipy.special import sph_harm
-def form_SHmat(coord,max_order=8,coord_system='polar'):
+def form_SHmat(coord,max_order=8, coord_system='polar'):
     """Form a Spherical Harmonics design matrix
 
     :param coord: list or array
