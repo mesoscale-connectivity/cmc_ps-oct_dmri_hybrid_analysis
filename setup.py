@@ -14,6 +14,6 @@ setup(name='cmc_hybrid',
       author_email='<saad.jbabdi@ndcn.ox.ac.uk> & <silei.zhu@ndcn.ox.ac.uk> & <amy.howard@ndcn.ox.ac.uk>',
       packages=['cmc_hybrid',],
       install_requires=install_requires,
-      scripts=['cmc_hybrid/scripts/cmc_hybrid','cmc_hybrid/scripts/cmc_slice_mask',]
+      scripts=['cmc_hybrid/scripts/cmc_hybrid','cmc_hybrid/scripts/cmc_slice_mask','cmc_hybrid/scripts/cmc_bpx2fod']
       )
 

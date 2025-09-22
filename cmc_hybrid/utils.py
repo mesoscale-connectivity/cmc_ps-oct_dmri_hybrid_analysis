@@ -23,12 +23,25 @@ def dirgen(ndir):
         gps('grot', ndir, optws=True)
         return np.loadtxt(f'grot{ndir}.txt')
 
-
+# ----- SPHERICAL COORDS ----- #
 def pol2cart(th,ph):
     x = np.sin(th)*np.cos(ph)
     y = np.sin(th)*np.sin(ph)
     z = np.cos(th)
     return np.array([x,y,z]).T
+
+def cart2pol(xyz):
+    n   = np.linalg.norm(xyz,axis=1,keepdims=True)
+    n[n==0] = 1
+    xyz = xyz / n
+    th  = np.arccos(xyz[:,2])
+    st  = np.sin(th)
+    idx = (st==0)
+    st[idx] = 1
+    ph  = np.arctan2(xyz[:,1]/st,xyz[:,0]/st)
+    ph[idx] = 0
+    return th,ph
+# ----- SPHERICAL COORDS ----- #
 
 def make_dyads(vecs):
     """calculate the dyadic vector average for a list of vectors
@@ -90,7 +103,7 @@ def fudge_psoct_orientation(theta, angle=22.):
     """
     Transform PSOCT orientation
     This transformation has been determined by trial and error
-    Needs to be revisited!
+    Needs to be revisited!  (e.g. should angle be = 12deg?)
 
     The transformation is the following:
     theta -> theta/2.
@@ -102,9 +115,13 @@ def fudge_psoct_orientation(theta, angle=22.):
     :param angle: float (degrees)
     :return: 1D array
     """
+    # z = np.exp(-1j*np.array(theta))
+    # z *= np.exp(np.pi+1j*2*angle)
+    # theta = np.angle(z)/2.
+
     theta = np.array(theta)/2.
     theta = np.pi - theta + angle*np.pi/180.
-    theta = np.where(theta < 0, theta + np.pi, theta)
+    theta = np.where(theta <= 0, theta + np.pi, theta)
     theta = np.where(theta > np.pi, theta - np.pi, theta)
 
     return theta

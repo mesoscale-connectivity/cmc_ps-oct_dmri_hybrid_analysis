@@ -48,21 +48,24 @@ def main():
     import numpy as np
     from joblib import Parallel, delayed, parallel_backend
     from functools import partial
-    from cmc_hybrid import utils
+    from cmc_hybrid import utils, fod
     from cmc_hybrid import coordinate_mapping as cm
     # ------------------------------------------------------------------------
 
     # Find slides
     if args.verbose:
         print("...Read slides")
-    slide_files   = args.psoct #sorted(glob(os.path.join(args.psoct,'Orientation','Slice_???_EnAO_header.nii.gz')))
+    slide_files   = args.psoct
     slides = [Image(sl) for sl in slide_files]
 
     # Load image files from database
     if args.verbose:
         print("...Prepare brain mask...")
     # Prepare mask
-    mask_img = utils.prepare_mask(args.mask, args.roi, args.scale)
+    maskfile = args.mask
+    if args.mask is None:
+        maskfile = os.path.join(args.bpx,'nodif_brain_mask')
+    mask_img = utils.prepare_mask(maskfile, args.roi, args.scale)
     mask     = mask_img.data
 
     if args.verbose:
@@ -83,14 +86,15 @@ def main():
         mask_img.getAffine('voxel','world')
     )
     voxels_diff = transform(voxels, mask2diff)
+    voxels_both = zip(voxels, voxels_diff)  # this has both sets of voxels
 
     # Global variables
     # All the big 4D files go here
     if args.verbose:
         print("...Loading bpx samples")
-    ths = [] #[Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_th?samples.nii.gz')))]
-    phs = [] #[Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_ph?samples.nii.gz')))]
-    fs =  [] #[Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_f?samples.nii.gz')))]
+    ths = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_th?samples.nii.gz')))]
+    phs = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_ph?samples.nii.gz')))]
+    fs =  [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_f?samples.nii.gz')))]
     if args.verbose:
         print('......loaded')
 
@@ -104,12 +108,13 @@ def main():
         dyads      = [utils.make_dyads(v) for v in vecs]
         return dyads
 
-    def process_voxel_hybrid(vox_coord, ths, phs, fs, slides, volume):
+    def process_voxel_hybrid(vox_both, ths, phs, fs, slides, volume):
         """
         For now, simply find the slides that intersect, the pixels in the voxel, and count them
         return the number of pixels in the voxel
         """
         # Get pixels and data
+        vox_coord, vox_diff = vox_both
         pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
         # if empty, return
         if len(pixgrid) == 0:
@@ -120,15 +125,16 @@ def main():
         # turn theta into vector and re-code in diffusion space?
         xform = cm.slide_to_volume(slides[0], volume)
         vecs  = cm.angle_to_vector(theta, xform=xform)
-        dyad  = utils.make_dyads(vecs)
+        #dyad  = utils.make_dyads(vecs)
         # calc_hybrid orientations
-        #x,y,z = vox_coord
-        #rescale x,y,z if scale is not 1
-        #th_samples = [th[x,y,z,:] for th in ths]
-        #ph_samples = [ph[x,y,z,:] for ph in phs]
-        #f_samples  = [f[x,y,z,:] for f in fs]
-        #h_vecs = fod.hybrid_fod(th_samples, ph_samples, f_samples, theta)
+        x,y,z      = np.array(vox_diff).astype(int)
+        th_samples = np.array([th[x,y,z,:] for th in ths]).flatten()
+        ph_samples = np.array([ph[x,y,z,:] for ph in phs]).flatten()
+        f_samples  = np.array([f[x,y,z,:] for f in fs]).flatten()
+        h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs)
 
+        # calc dyads
+        dyad  = utils.make_dyads(h_vecs)
         return dyad
 
     # ------------------------------------------------------------------------------
@@ -147,7 +153,12 @@ def main():
 
     with parallel_backend("threading", n_jobs=n_workers):
         verbosity = 13 if args.verbose else 0
-        results = Parallel(verbose=verbosity)(delayed(func)(vox) for vox in voxels)
+        results = Parallel(verbose=verbosity)(delayed(func)(vox) for vox in voxels_both)
+
+    # Sequentially
+    # for vox in voxels_both:
+    #     print(vox)
+    #     results.append( func(vox) )
 
     # Save output
     print('...saving')

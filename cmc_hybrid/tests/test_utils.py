@@ -17,6 +17,12 @@ def test_pol2cart():
     assert np.all(np.isclose(x[0], np.array([0,0,1])))
     assert np.all(np.isclose(x[1], np.array([-1,0,0])))
 
+def test_cart2pol():
+    xyz = [[0,0,1],[-1,0,0]]
+    th, ph = utils.cart2pol(xyz)
+    assert np.all(np.isclose(th, [0., np.pi/2.]))
+    assert np.all(np.isclose(ph, [0., np.pi]))
+
 def test_make_dyads():
     vecs = [[1,0,0],[1,0,0],[1,0,0]]
     v = utils.make_dyads(vecs)
@@ -39,6 +45,9 @@ def test_fudge_psoct_orientation():
     assert np.all(np.isclose(x, res))
 
 
+    theta = [0., 45., 180.]
+    x = utils.fudge_psoct_orientation( theta )
+    assert len(x) == len(theta)
 
 def test_upscale_image():
     from fsl.data.image import Image
