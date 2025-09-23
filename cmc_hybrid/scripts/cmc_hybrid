@@ -117,7 +117,7 @@ def main():
         vox_coord, vox_diff = vox_both
         pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
         # if empty, return
-        if len(pixgrid) < 1:
+        if len(theta) < 3:
             return np.array([0.,0.,0.])
 
         # fudge orientation data
