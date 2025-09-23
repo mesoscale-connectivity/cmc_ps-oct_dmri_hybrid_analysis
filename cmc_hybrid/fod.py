@@ -37,7 +37,14 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
     a = (utils.vec_normalise(vecs_plane[:,:2],1) @ utils.vec_normalise(v_plane[:,:2],1).T)**2  # Nxn
     idx = np.argmax(a, axis=1)
 
-    new_vecs = np.concatenate((vecs_plane[:,:2], v_plane[idx,2][:,None]), axis=1)
+    x  = vecs_plane[:,0]
+    y  = vecs_plane[:,1]
+    z  = v_plane[idx,2]
+
+    alpha = np.sqrt((1-z**2) / (x**2+y**2))
+    xyz   = [alpha*x,alpha*y,z]
+
+    new_vecs = np.stack(xyz, axis=1)
     new_vecs = new_vecs@V.T
     new_vecs = utils.vec_normalise(new_vecs, 1)
 
