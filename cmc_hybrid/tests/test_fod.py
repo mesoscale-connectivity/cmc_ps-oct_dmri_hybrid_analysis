@@ -7,6 +7,12 @@ def test_form_SHmat():
     SH = fod.form_SHmat(xyz, coord_system='cart')
     assert SH.shape == (50, 45)
 
+    th = [0., np.pi/4., np.pi/2.]
+    ph = [0., np.pi/4., 0. ]
+    SHmat = fod.form_SHmat([th,ph], max_order=4, coord_system='polar')
+    assert np.isclose(np.mean(SHmat), 0.06458912468777361)
+
+
 
 def test_hybrid_vecs():
     th = np.random.randn(100)
@@ -15,6 +21,7 @@ def test_hybrid_vecs():
     vecs = np.random.randn(200,3)
     new_vecs = fod.hybrid_vecs(th, ph, f, vecs)
     assert new_vecs.shape == (200,3)
+
 
     #
     # vecs = np.random.randn(200,3)

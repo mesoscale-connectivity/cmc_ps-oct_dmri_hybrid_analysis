@@ -52,7 +52,7 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
     return new_vecs
 
 # SPHERICAL HARMONICS STUFF
-from scipy.special import sph_harm
+from scipy.special import sph_harm_y
 def form_SHmat(coord,max_order=8, coord_system='polar'):
     """Form a Spherical Harmonics design matrix
 
@@ -69,5 +69,5 @@ def form_SHmat(coord,max_order=8, coord_system='polar'):
     mat = []
     for n in range(0,max_order+1,2): # only even order
         for m in range(-n,n+1):
-            mat.append(sph_harm(m,n,az,pol).real)
+            mat.append(sph_harm_y(n,m,pol,az).real)
     return np.asarray(mat).T
