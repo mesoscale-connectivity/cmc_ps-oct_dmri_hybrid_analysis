@@ -1,7 +1,5 @@
 test:
-  image: python:3.12
-  tags:
-      - docker
+  image: python:3.10
   script:
     - pip install . pytest
     - pytest -v .
