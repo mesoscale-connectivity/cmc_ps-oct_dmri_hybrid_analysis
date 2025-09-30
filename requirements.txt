@@ -5,3 +5,4 @@ fslpy
 pytest
 joblib
 scipy
+plotly

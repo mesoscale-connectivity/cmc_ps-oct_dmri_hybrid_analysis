@@ -74,6 +74,7 @@ def main():
     # Prepare voxels based on roi and mask
     # voxels contains all the voxel coordinates within the mask and the roi
     voxels = np.argwhere(mask)
+
     if len(voxels)==0:
         raise(Exception("Found no voxels to process. Please check the mask and roi definitions."))
     if args.verbose:
@@ -99,14 +100,14 @@ def main():
         print('......loaded')
 
     # --------- Parallalised functions --------------- #
-    def process_voxel(vox_coord, ths, phs, fs):
-        x,y,z = vox_coord
-        th_samples = [th[x,y,z,:] for th in ths]
-        ph_samples = [ph[x,y,z,:] for ph in phs]
-        f_samples  = [f[x,y,z,:] for f in fs]
-        vecs       = [utils.pol2cart(th,ph) for th,ph in zip(th_samples, ph_samples)]
-        dyads      = [utils.make_dyads(v) for v in vecs]
-        return dyads
+    # def process_voxel(vox_coord, ths, phs, fs):
+    #     x,y,z = vox_coord
+    #     th_samples = [th[x,y,z,:] for th in ths]
+    #     ph_samples = [ph[x,y,z,:] for ph in phs]
+    #     f_samples  = [f[x,y,z,:] for f in fs]
+    #     vecs       = [utils.pol2cart(th,ph) for th,ph in zip(th_samples, ph_samples)]
+    #     dyads      = [utils.make_dyads(v) for v in vecs]
+    #     return dyads
 
     def process_voxel_hybrid(vox_both, ths, phs, fs, slides, volume):
         """
@@ -115,27 +116,30 @@ def main():
         """
         # Get pixels and data
         vox_coord, vox_diff = vox_both
-        pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
+        # pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
         # if empty, return
-        if len(theta) < 3:
-            return np.array([0.,0.,0.])
+        #if len(theta) < 3:
+        #    return np.array([0.,0.,0.])
 
         # fudge orientation data
-        theta = utils.fudge_psoct_orientation(theta)
+        # theta = utils.fudge_psoct_orientation(theta)
         # turn theta into vector and re-code in diffusion space?
-        xform = cm.slide_to_volume(slides[0], volume)
-        vecs  = cm.angle_to_vector(theta, xform=xform)
-        #dyad  = utils.make_dyads(vecs)
+        # xform = cm.slide_to_volume(slides[0], volume)
+        # vecs  = cm.angle_to_vector(theta, xform=xform)
+        # dyad  = utils.make_dyads(vecs)
         # calc_hybrid orientations
         x,y,z      = np.array(vox_diff).astype(int)
         th_samples = np.array([th[x,y,z,:] for th in ths]).flatten()
         ph_samples = np.array([ph[x,y,z,:] for ph in phs]).flatten()
-        f_samples  = np.array([f[x,y,z,:] for f in fs]).flatten()
-        h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs)
+        f_samples  = np.array([f[x,y,z,:]  for f in fs]).flatten()
+        # h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs)
+
+        h_vecs     = utils.pol2cart(th_samples, ph_samples)
 
         # calc dyads
-        dyad  = utils.make_dyads(h_vecs)
-        return dyad
+        #res  = utils.make_dyads(h_vecs)
+        res  = fod.fit_sh_fod(h_vecs, weights=f_samples, normalise=True)
+        return res
 
     # ------------------------------------------------------------------------------
 
@@ -162,13 +166,15 @@ def main():
 
     # Save output
     print('...saving')
+    #print(results)
     results = np.array(results)
-    print(results.shape)
-    tmp = np.zeros(mask.shape+(3,))
-    tmp = np.reshape(tmp, (-1,3))
+    #print(f"results.shape = {results.shape}")
+    n = results.shape[-1]
+    tmp = np.zeros(mask.shape+(n,))
+    tmp = np.reshape(tmp, (-1,n))
     tmp[mask.flatten()>0,:] = results
-    tmp = np.reshape(tmp, mask.shape+(3,))
-    Image(tmp, header=mask_img.header).save(args.out+f"_dyads")
+    tmp = np.reshape(tmp, mask.shape+(n,))
+    Image(tmp, header=mask_img.header).save(args.out)
 
 
     # tmp = np.zeros(mask.shape).flatten()

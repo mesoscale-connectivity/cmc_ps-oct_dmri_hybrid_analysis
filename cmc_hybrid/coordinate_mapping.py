@@ -16,6 +16,8 @@ from fsl.data.image import Image
 def slide_vox_intersect(voxel, slide, volume):
     """Test if voxel intersects with slide(s)
 
+    WARNING!! This assumes that the data is Coronal!!!
+
     voxel      : list or array (single voxel)
     slide      : either Image object or list of Image objects
     volume_img : Image object
@@ -30,7 +32,11 @@ def slide_vox_intersect(voxel, slide, volume):
     vox2world = volume.getAffine('voxel', 'world')
     vox2pix = concat(world2pix, vox2world)
     # test if near slide using y-coord
-    return np.abs(transform(voxel, vox2pix))[1]<=1.
+    # calc distance between slide and centre of the voxel
+    # test that it is smaller than sqrt(3)/2*edge
+
+    dist = np.abs(transform(voxel, vox2pix))[1] * slide.pixdim[1]
+    return dist <= np.sqrt(3)/2. * np.max(volume.pixdim)
 
 # Helper functions for cube operations/visualisation
 def cube_vertices(XYZ, SL):

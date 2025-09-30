@@ -11,6 +11,9 @@
 from cmc_hybrid import utils
 import numpy as np
 
+# For Kernel Density Estimation
+from scipy.spatial import KDTree
+
 # Hybrid vectors
 def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
     """Create hybrid vectors from 2D and 3D samples
@@ -35,6 +38,8 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
 
     # 3) argmax of cosine angle
     a = (utils.vec_normalise(vecs_plane[:,:2],1) @ utils.vec_normalise(v_plane[:,:2],1).T)**2  # Nxn
+    # weighted by f_samples
+    a = a * f_samples[None,:]
     idx = np.argmax(a, axis=1)
 
     x  = vecs_plane[:,0]
@@ -69,5 +74,153 @@ def form_SHmat(coord,max_order=8, coord_system='polar'):
     mat = []
     for n in range(0,max_order+1,2): # only even order
         for m in range(-n,n+1):
-            mat.append(sph_harm_y(n,m,pol,az).real)
-    return np.asarray(mat).T
+            if m<0:
+                mat.append(sph_harm_y(n,m,pol,az).imag)
+            else:
+                mat.append(sph_harm_y(n,m,pol,az).real)
+    return np.array(mat).T
+
+class SphereKernelDensity(object):
+    def __init__(self, bandwidth=1., n_beighbours=10):
+        self.h = bandwidth
+        self.K = n_beighbours
+        self.lnC3 = np.log(bandwidth / np.sinh(bandwidth)/4./np.pi)
+        self.tree = None
+        self.npts = None
+    def fit(self, xyz):
+        self.npts = xyz.shape[0]
+        self.tree = KDTree(xyz)
+
+    def pdf(self, xyz, weights=None):
+        dist, idx = self.tree.query(xyz, k=self.K, p=2)
+        dp   = 1-dist**2/2.
+        logprob = self.h*dp +  self.lnC3
+
+        # weighted mean?
+        if weights is not None:
+            if len(weights)==self.npts/2:
+                weights = np.concatenate([weights,weights])
+            return np.sum(np.exp(logprob) * weights[idx], axis=1) / np.sum(weights)
+
+        return np.mean(np.exp(logprob), axis=1)
+
+
+def fit_sh_fod(xyz, max_order=4, symmetric=True, weights=None, kde_bw = 20., normalise = False, output_kde=False):
+    """Fit spherical harmonics FOD to a bunch of sample orientations
+
+    xyz (array)      : Nx3 input cartesian vectors
+    max_order (int)  : order of spherical harmonics
+    symmetric (bool) : fit to polar-symmatric set of vectors (i.e. add negatives of input vectors)
+    weights (array)  : weights of various sample orientations
+    kde_bw (float)   : bandwidth for KDE estimation
+    normalise (bool) : output normalised SH coeffs
+
+    Returns: SH coefficients (array)
+
+    """
+    if weights is not None:
+        assert len(weights) == xyz.shape[0], f"length of weights {len(weights)} incompatible with length of input {xyz.shape[1]}"
+
+    # 1) Kernel Density Estimation on the sphere
+    if symmetric:
+        xyzxyz  = np.concatenate([xyz, -xyz], axis=0)
+    else:
+        xyzxyz  = xyz
+    # Enforce normalisation
+    xyzxyz  = xyzxyz / np.linalg.norm(xyzxyz, axis=1, keepdims=True)
+    # KDE fit
+    skde   = SphereKernelDensity(bandwidth=kde_bw)
+    skde.fit(xyzxyz)
+    # 2) Use grid to fit SH
+    th, ph  = np.mgrid[0:2*np.pi:100j, 0:2*np.pi:100j]
+    bvecs   = utils.pol2cart(th, ph).reshape((-1,3))
+    dens    = skde.pdf(bvecs, weights=weights)
+    SHmat   = form_SHmat(bvecs, max_order=max_order, coord_system='cart')
+    coeff   = np.linalg.pinv(SHmat)@dens
+    if normalise:
+        coeff = coeff / coeff[0] / np.sqrt(4.*np.pi)
+    if output_kde:
+        return coeff, skde
+    return coeff
+
+
+
+# ================= PLOTTING TOOLS ==================== #
+
+
+
+LM_dict = {
+    0 : 1,
+    2 : 6,
+    4 : 15,
+    6 : 28,
+    8 : 45,
+    10 : 66,
+    12 : 91,
+}
+ML_dict = res = dict((v,k) for k,v in LM_dict.items())
+
+def SHorder(M):
+    max_M = 91
+    if M >max_M:
+        raise(Exception("M should be <=91"))
+    return ML_dict[M]
+
+def SHcoeffLen(L):
+    if L <= 12:
+        if np.remainder(L,2):
+            return LM_dict[L-1]
+        else:
+            return LM_dict[L]
+    else:
+        L_over_2 = int(np.floor(L/2))
+        return int(L_over_2+1 + 2*L_over_2*(L_over_2+1))
+
+
+import plotly.graph_objects as go
+def plot_odf_glyph(coeff, glyph=False, samples=None, notebook=False):
+    """
+    Plot signal ODF glpyh
+
+    Args:
+      coeff (array)   : SH coefficients
+      glyph (bool)    : plot as deformed surface
+      samples (array) : orientation samples to be scatter plotted
+      notebook (bool) : plot within a jupyter notebook
+
+    Returns:
+        Plotly figure
+    """
+    if notebook:
+        from plotly.offline import init_notebook_mode, iplot
+        init_notebook_mode(connected=True)
+
+    th, ph = np.mgrid[0:2*np.pi:100j, 0:2*np.pi:100j]
+
+    bvecs = utils.pol2cart(th, ph)
+    X, Y, Z = bvecs[:, :, 0], bvecs[:, :, 1], bvecs[:, :, 2]
+
+    if type(coeff) == np.ndarray:
+        max_order = SHorder(len(coeff))
+        SHmat = form_SHmat(bvecs.reshape((-1,3)), max_order=max_order, coord_system='cart')
+        FOD   = (SHmat@coeff).reshape(th.shape)
+    else:
+        FOD =coeff.pdf(bvecs.reshape((-1,3))).reshape(th.shape)
+
+    data = []
+    if glyph:
+        M = np.max(FOD)
+        X,Y,Z = FOD*X/M, FOD*Y/M, FOD*Z/M
+    data.append(go.Surface(x=X, y=Y, z=Z, surfacecolor=FOD, showscale=False))
+
+    if samples is not None:
+        data.append(go.Scatter3d(x=samples[:,0], y=samples[:,1], z=samples[:,2],
+                                 mode='markers',marker=dict(size=3,color='#000000', opacity=0.8)))
+
+
+    fig = go.Figure()
+    fig = go.Figure(data=data)
+    fig.update_layout(scene=dict(aspectmode="data"))
+    # fig.show()
+    return fig
+

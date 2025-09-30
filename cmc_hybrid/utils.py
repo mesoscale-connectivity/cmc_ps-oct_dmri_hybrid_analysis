@@ -10,18 +10,45 @@
 import numpy as np
 
 # Generate directions on the sphere
-def dirgen(ndir):
-    """Use FSL's GPS to generate directions
-
-    :param ndir: integer number of directions
-    :return: ndir x 3 array
+# def dirgen(ndir):
+#     """Use FSL's GPS to generate directions
+#
+#     :param ndir: integer number of directions
+#     :return: ndir x 3 array
+#     """
+#     from fsl.wrappers import gps
+#     import numpy as np
+#     from fsl.utils.tempdir import tempdir
+#     with tempdir():
+#         gps('grot', ndir, optws=True)
+#         return np.loadtxt(f'grot{ndir}.txt')
+#
+# Generate directions on the sphere
+# Drop gps - use fibonacci instead
+from functools import lru_cache
+@lru_cache(None)
+def dirgen(samples=1):
     """
-    from fsl.wrappers import gps
-    import numpy as np
-    from fsl.utils.tempdir import tempdir
-    with tempdir():
-        gps('grot', ndir, optws=True)
-        return np.loadtxt(f'grot{ndir}.txt')
+    Creates N points uniformly-ish distributed on the sphere
+
+    Args:
+        samples : int
+    """
+    points = np.array((samples,3))
+    phi = np.pi * (3. - np.sqrt(5.))  # golden angle in radians
+
+    i = np.arange(samples)
+    y = 1 - 2.*(i / float(samples-1))
+    r = np.sqrt(1-y*y)
+    t = phi * i
+    x = np.cos(t) * r
+    z = np.sin(t) * r
+
+    points = np.asarray([x,y,z]).T
+
+    return points
+
+    
 
 # ----- SPHERICAL COORDS ----- #
 def pol2cart(th,ph):
