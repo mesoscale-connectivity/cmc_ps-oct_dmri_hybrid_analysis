@@ -1,5 +1,5 @@
 test:
-  image: python:3.10
+  image: conda/miniconda3
   script:
     - pip install . pytest
     - pytest -v .
