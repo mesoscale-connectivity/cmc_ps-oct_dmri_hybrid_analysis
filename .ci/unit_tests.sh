@@ -1,7 +1,7 @@
 set -e
 
 projroot=$(cd $(dirname $0) && pwd)/..
-conda create \
+micromamba create -y \
   -c https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/public/ \
   -c conda-forge \
   -p /fsl \
