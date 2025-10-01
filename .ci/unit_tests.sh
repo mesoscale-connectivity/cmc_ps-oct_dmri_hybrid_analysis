@@ -11,4 +11,7 @@ micromamba create -y \
   python $(cat ${projroot}/requirements.txt)
 micromamba activate ./fsl
 pip install .
+
+export FSLDIR=/fsl
+source $FSLDIR/etc/fslconf/fsl.sh
 pytest -v .
