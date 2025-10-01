@@ -1,3 +1,5 @@
+eval "$(micromamba shell hook --shell bash)"
+
 set -e
 
 projroot=$(cd $(dirname $0) && pwd)/..
