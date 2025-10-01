@@ -1,4 +1,6 @@
-conda create \
+set -e
+
+source create \
         -c https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/public/ \
         -c conda-forge \
         -p /fsl \
