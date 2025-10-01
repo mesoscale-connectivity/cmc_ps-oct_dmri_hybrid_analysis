@@ -1,4 +1,4 @@
 test:
-  image: conda/miniconda3
+  image: mambaorg/micromamba
   script:
     - bash ./.ci/unit_tests.sh
