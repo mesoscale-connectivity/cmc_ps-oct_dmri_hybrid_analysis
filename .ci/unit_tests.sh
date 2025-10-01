@@ -7,5 +7,6 @@ micromamba create -y \
   -p ./fsl \
   fsl-avwutils fsl-flirt \
   python $(cat ${projroot}/requirements.txt)
-source activate ./fsl
+micromamba activate ./fsl
 pip install .
+pytest -v .
