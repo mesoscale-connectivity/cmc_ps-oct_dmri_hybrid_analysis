@@ -15,7 +15,7 @@ import numpy as np
 from scipy.spatial import KDTree
 
 # Hybrid vectors
-def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
+def hybrid_vecs(th_samples, ph_samples, f_samples, vecs, weighted=False, deterministic=False):
     """Create hybrid vectors from 2D and 3D samples
 
     :param th_samples: bpx samples (array)
@@ -39,8 +39,12 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
     # 3) argmax of cosine angle
     a = (utils.vec_normalise(vecs_plane[:,:2],1) @ utils.vec_normalise(v_plane[:,:2],1).T)**2  # Nxn
     # weighted by f_samples
-    a = a * f_samples[None,:]
-    idx = np.argmax(a, axis=1)
+    if weighted:
+        a = a * f_samples[None,:]
+    if deterministic:
+        idx = np.argmax(a, axis=1)
+    else:
+        idx = sample_from(a, axis=1)
 
     x  = vecs_plane[:,0]
     y  = vecs_plane[:,1]
@@ -56,6 +60,29 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs):
     # 4) return 3D vector
     return new_vecs
 
+
+def sample_from(dens, axis=0):
+    """Sample from density defined by histrogram
+
+    :param dens: array
+    :param axis: axis along which the density is defined
+    :return: array
+    """
+    assert dens.ndim ==2,   "only supports two dimensional arrays"
+    assert axis<2,          "only supports two dimensional arrays"
+    assert np.min(dens)>=0, "density must be positive"
+
+    prob       = dens / np.sum(dens, axis=axis, keepdims=True)
+    cumprob    = np.cumsum(prob, axis=axis)
+    other_axis = 1-axis
+    r          = np.random.uniform(size=prob.shape[other_axis])
+    r          = r[:,None] if axis==1 else r[None,:]
+    p          = (cumprob > r).astype(int)
+    index      = np.argmax(p, axis=axis)
+    return index
+
+
+# SPHERICAL HARMONICS STUFF
 # SPHERICAL HARMONICS STUFF
 from scipy.special import sph_harm_y
 def form_SHmat(coord,max_order=8, coord_system='polar'):
@@ -71,11 +98,14 @@ def form_SHmat(coord,max_order=8, coord_system='polar'):
         pol,az = utils.cart2pol(coord)
     else:
         pol,az = coord
-    mat = []
+    mat   = []
+    sqrt2 = np.sqrt(2.)
     for n in range(0,max_order+1,2): # only even order
         for m in range(-n,n+1):
             if m<0:
-                mat.append(sph_harm_y(n,m,pol,az).imag)
+                mat.append(sqrt2*sph_harm_y(n,-m,pol,az).imag)
+            elif m>0:
+                mat.append(sqrt2*sph_harm_y(n,m,pol,az).real)
             else:
                 mat.append(sph_harm_y(n,m,pol,az).real)
     return np.array(mat).T
@@ -127,7 +157,7 @@ def fit_sh_fod(xyz, max_order=4, symmetric=True, weights=None, kde_bw = 20., nor
     else:
         xyzxyz  = xyz
     # Enforce normalisation
-    xyzxyz  = xyzxyz / np.linalg.norm(xyzxyz, axis=1, keepdims=True)
+    xyzxyz  = utils.vec_normalise(xyzxyz, 1)
     # KDE fit
     skde   = SphereKernelDensity(bandwidth=kde_bw)
     skde.fit(xyzxyz)

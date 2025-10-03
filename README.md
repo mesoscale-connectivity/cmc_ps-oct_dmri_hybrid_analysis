@@ -28,15 +28,17 @@ cmc_hybrid --help
 Here is an example call to the main script:
 
 ```bash
-cmc_hybrid --psoct <PSOCT_FOLDER>/Slices*_header.nii.gz \
-	       --bpx <BEDPOSTX_FOLDER>> \
-	       -o <OUTPUT_FILE> \
-	       --mask <BRAIN_MASK_IMAGE  \
-	       --scale 8 --roi <xmin> <xsize> <ymin> <ysize> <zmin> <zsize> \
-	       --verbose 
+cmc_hybrid  --psoct <PSOCT_FOLDER>/Slices*_header.nii.gz \
+            --bpx <BEDPOSTX_FOLDER>> \
+            -o <OUTPUT_FILE> \
+            --mask <BRAIN_MASK_IMAGE>  \
+            --scale 8 --roi <xmin> <xsize> <ymin> <ysize> <zmin> <zsize> \
+            --verbose 
 	   
 ```
 
+## Using the code within python
 
 MORE INSTRUCTIONS TBD
+(see Notebook)
 

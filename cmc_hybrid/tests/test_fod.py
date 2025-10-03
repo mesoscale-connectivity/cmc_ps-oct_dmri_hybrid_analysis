@@ -10,8 +10,19 @@ def test_form_SHmat():
     th = [0., np.pi/4., np.pi/2.]
     ph = [0., np.pi/4., 0. ]
     SHmat = fod.form_SHmat([th,ph], max_order=4, coord_system='polar')
-    assert np.isclose(np.mean(SHmat), 0.02662295821002815)
+    assert np.isclose(np.mean(SHmat), 0.056381724340180316)
 
+
+def test_sample_from():
+    dens = np.array([[.1,.2,.7],
+                 [.2,.2,.2],
+                 [.6,.3,.1]])
+    samples = []
+    for _ in range(10000):
+        samples.append(fod.sample_from( dens, axis=1 ))
+    samples = np.array(samples)
+    hist = np.histogram(samples[:,0], bins=(np.arange(3+1)-0.5), density=True)
+    assert np.all(np.isclose(hist[0], [.1,.2,.7], atol=1e-1))
 
 
 def test_hybrid_vecs():

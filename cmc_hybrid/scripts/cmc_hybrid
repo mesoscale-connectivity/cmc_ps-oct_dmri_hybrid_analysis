@@ -26,18 +26,27 @@ def parse_cmdline_args():
     p.add_argument("--mask", required=False, help="brain mask")
     p.add_argument("-j", "--jobs", type=int,
                    help="parallel workers (default=max available)")
-    p.add_argument("-s", "--scale", type=int, default=1,
+    p.add_argument("--output_type", required=False, type=str, default='h-fod',
+                   help="type of output: h-fod (default) or h-dyad or psoct-dyad")
+    p.add_argument("--deterministic", required=False, action='store_true',
+                   help="deterministic out-of-plane sampling (only relevant for FOD output)")
+    p.add_argument("--f_thr", required=False, type=float,
+                   help="f-threshold")
+    p.add_argument("-s", "--scale", required=False, type=int, default=1,
                    help="upsampling factor (e.g. 1, 2, 4, etc.)")
+    p.add_argument("--SHorder", required=False, type=int, default=8,
+                   help="spherical harmonics order. default=8.")
     p.add_argument('--verbose', required=False, action='store_true',
                     help='print out messages')
     return p.parse_args()
 
 
 
-
 def main():
     # Parse command-line arguments
     args = parse_cmdline_args()
+    check_args(args)
+
     if args.verbose:
         print("Begin.")
     # ------------------------------------------------------------------------
@@ -93,11 +102,19 @@ def main():
     # All the big 4D files go here
     if args.verbose:
         print("...Loading bpx samples")
-    ths = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_th?samples.nii.gz')))]
-    phs = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_ph?samples.nii.gz')))]
-    fs =  [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_f?samples.nii.gz')))]
-    if args.verbose:
-        print('......loaded')
+
+    # no need to load bpx samples if we are only interested in the psoct orientations
+    if args.output_type == 'psoct-dyad':
+        if args.verbose:
+            print('......not loaded (only psoct orientations are analysed)')
+
+        ths, phs, fs = [], [], []
+    else:
+        ths = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_th?samples.nii.gz')))]
+        phs = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_ph?samples.nii.gz')))]
+        fs =  [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_f?samples.nii.gz')))]
+        if args.verbose:
+            print('......loaded')
 
     # --------- Parallalised functions --------------- #
     # def process_voxel(vox_coord, ths, phs, fs):
@@ -109,37 +126,47 @@ def main():
     #     dyads      = [utils.make_dyads(v) for v in vecs]
     #     return dyads
 
-    def process_voxel_hybrid(vox_both, ths, phs, fs, slides, volume):
+    def process_voxel_hybrid(vox_both, ths, phs, fs, slides, volume, output_type, deterministic, f_thr, SHorder):
         """
         For now, simply find the slides that intersect, the pixels in the voxel, and count them
         return the number of pixels in the voxel
         """
         # Get pixels and data
         vox_coord, vox_diff = vox_both
-        # pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
-        # if empty, return
-        #if len(theta) < 3:
-        #    return np.array([0.,0.,0.])
+        pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
+        # need at least three values to get a 3x3 SVD later
+        if len(theta) < 3:
+            if output_type in ['h-dyad', 'psoct-dyad']:
+                return np.zeros(3)
+            else:
+                n = fod.SHcoeffLen(SHorder)
+                return np.zeros(n)
 
         # fudge orientation data
-        # theta = utils.fudge_psoct_orientation(theta)
+        theta = utils.fudge_psoct_orientation(theta)
         # turn theta into vector and re-code in diffusion space?
-        # xform = cm.slide_to_volume(slides[0], volume)
-        # vecs  = cm.angle_to_vector(theta, xform=xform)
-        # dyad  = utils.make_dyads(vecs)
+        xform = cm.slide_to_volume(slides[0], volume)
+        vecs  = cm.angle_to_vector(theta, xform=xform)
+        # stop here if only psoct-dyad are requested
+        if output_type == 'psoct-dyad':
+            dyad  = utils.make_dyads(vecs)
+            return dyad
         # calc_hybrid orientations
         x,y,z      = np.array(vox_diff).astype(int)
         th_samples = np.array([th[x,y,z,:] for th in ths]).flatten()
         ph_samples = np.array([ph[x,y,z,:] for ph in phs]).flatten()
         f_samples  = np.array([f[x,y,z,:]  for f in fs]).flatten()
-        # h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs)
+        if f_thr is not None:
+            f_samples[f_samples<f_thr] = 0.
 
-        h_vecs     = utils.pol2cart(th_samples, ph_samples)
+        h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs, weighted=True, deterministic=deterministic)
 
         # calc dyads
-        #res  = utils.make_dyads(h_vecs)
-        res  = fod.fit_sh_fod(h_vecs, weights=f_samples, normalise=True)
-        return res
+        if output_type == 'h-dyad':
+            fod_coef  = utils.make_dyads(h_vecs)
+        elif output_type == 'h-fod':
+            fod_coef  = fod.fit_sh_fod(h_vecs, max_order=SHorder, symmetric=True, normalise=True)
+        return fod_coef
 
     # ------------------------------------------------------------------------------
 
@@ -152,38 +179,55 @@ def main():
         n_workers = mp.cpu_count() - 1
 
     # func = partial(process_voxel, ths=ths, phs=phs)
-    func = partial(process_voxel_hybrid, ths=ths, phs=phs, fs=fs, slides=slides, volume=mask_img)
+    func = partial(process_voxel_hybrid, ths=ths, phs=phs, fs=fs, slides=slides, volume=mask_img,
+                   output_type=args.output_type, deterministic=args.deterministic, f_thr=args.f_thr, SHorder=args.SHorder)
     results = []
 
     with parallel_backend("threading", n_jobs=n_workers):
         verbosity = 13 if args.verbose else 0
         results = Parallel(verbose=verbosity)(delayed(func)(vox) for vox in voxels_both)
 
-    # Sequentially
+    # Run Sequentially (for testing)
     # for vox in voxels_both:
     #     print(vox)
     #     results.append( func(vox) )
 
     # Save output
     print('...saving')
-    #print(results)
     results = np.array(results)
-    #print(f"results.shape = {results.shape}")
-    n = results.shape[-1]
-    tmp = np.zeros(mask.shape+(n,))
-    tmp = np.reshape(tmp, (-1,n))
-    tmp[mask.flatten()>0,:] = results
-    tmp = np.reshape(tmp, mask.shape+(n,))
-    Image(tmp, header=mask_img.header).save(args.out)
-
-
-    # tmp = np.zeros(mask.shape).flatten()
-    # tmp[mask.flatten()>0] = results
-    # tmp = np.reshape(tmp, mask.shape)
-    # Image(tmp, header=mask_img.header).save(args.out)
+    save_results(results, mask_img, args.out)
 
     # Finish.
     print("Done.")
+
+# -------------- Other functions ------------------------- #
+def save_results(results, mask_img, outfile):
+    """Save results are a NIFTI file
+
+    :param results: array
+    :param mask_img: Image obj
+    :param outfile: str
+    :return:
+    """
+    import numpy as np
+    from fsl.data.image import Image
+    n         = results.shape[-1]
+    out_shape = mask_img.shape+(n,)
+
+    out_array = np.zeros(out_shape)
+    out_array = np.reshape(out_array, (-1,n))
+    out_array[mask_img.data.flatten()>0,:] = results
+    out_array = np.reshape(out_array, out_shape)
+    Image(out_array, header=mask_img.header).save(outfile)
+
+    return
+
+
+def check_args(args):
+    """Check cmd line args
+    """
+    allowed_output_types = ['h-fod', 'h-dyad','psoct-dyad']
+    assert args.output_type in allowed_output_types, f"output_type must be one of {allowed_output_types}, but value given is {args.output_type}"
 
 
 if __name__ == '__main__':
