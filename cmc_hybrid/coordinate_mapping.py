@@ -13,6 +13,8 @@ from fsl.transform.affine import concat, transform, invert
 from scipy.ndimage import map_coordinates
 from fsl.data.image import Image
 
+from cmc_hybrid import utils
+
 def slide_vox_intersect(voxel, slide, volume):
     """Test if voxel intersects with slide(s)
 
@@ -117,6 +119,7 @@ def vox_to_pix(vox, slides, volume):
     pixgrid_all = []
     voxgrid_all = []
     pixgrid_data_all = []
+
     for idx in range(len(slides)):
         if slide_masks[idx]:
             pixgrid2vox, pixgrid = get_pixgrid(vox, slides[idx], volume)
@@ -125,7 +128,8 @@ def vox_to_pix(vox, slides, volume):
             pixgrid_all.extend(pixgrid[mask,:])
             voxgrid_all.extend(pixgrid2vox[mask,:])
             # get data
-            pixgrid_data_all.extend(map_coordinates(slides[idx].data, pixgrid[mask,:].T, order=0))
+            data = utils.get_data(slides[idx])
+            pixgrid_data_all.extend(map_coordinates(data, pixgrid[mask,:].T, order=0))
 
     return pixgrid_all, voxgrid_all, pixgrid_data_all
 

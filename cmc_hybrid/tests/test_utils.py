@@ -39,6 +39,22 @@ def test_prepare_mask():
     a = utils.prepare_mask(maskfile, roi, scale=2)
     assert a.shape[0] == 2*Image(maskfile).shape[0]
 
+    slides = [Image(testsPath / 'testdata/slice1'), Image(testsPath / 'testdata/slice2')]
+    a = utils.prepare_mask(maskfile, roi, scale=2, slides=slides)
+    assert np.sum(a.data) > 0
+    assert np.sum(a.data!=0) < np.sum(utils.prepare_mask(maskfile, roi, scale=2).data!=0)
+
+
+def test_order_voxels():
+    v = np.random.randn(10,3)
+    vv = utils.order_voxels(v, 'Coronal')
+    assert vv[0,1] <= vv[-1,1]
+    vv = utils.order_voxels(v, 'Sagittal')
+    assert vv[0,0] <= vv[-1,0]
+    vv = utils.order_voxels(v, 'Axial')
+    assert vv[0,2] <= vv[-1,2]
+
+
 def test_fudge_psoct_orientation():
     res = np.array([ 90. ,  67.5,  45. ,  22.5, 180. , 157.5, 135. , 112.5,  90. ])
     x = utils.fudge_psoct_orientation( np.arange(-180, 180+45, 45)*np.pi/180.0, 0. ) * 180.0 / np.pi
@@ -62,3 +78,21 @@ def test_vec_normalise():
     assert np.all(np.isclose(n,1.))
     n = np.sum((utils.vec_normalise(x, axis=1))**2, axis=1)
     assert np.all(np.isclose(n,1.))
+
+def test_get_data():
+    maskfile  = testsPath / 'testdata/volume'
+    maskdata  = utils.get_data(Image(maskfile))
+    assert np.sum(maskdata) > 0
+
+def test_slide_is_too_big():
+    img = Image(testsPath / 'testdata/slice1')
+    assert not utils.slide_is_too_big(img)
+
+
+def test_resample_slide():
+    img = Image(testsPath / 'testdata/slice1')
+    img_r = utils.resample_slide(img, slide_direction='coronal', factor=2)
+    assert img_r.pixdim[0] == img.pixdim[0]*2
+    assert img_r.pixdim[2] == img.pixdim[2]*2
+    assert img_r.pixdim[1] == img.pixdim[1]
+

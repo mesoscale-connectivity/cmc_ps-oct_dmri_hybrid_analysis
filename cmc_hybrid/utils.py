@@ -8,6 +8,7 @@
 # SHBASECOPYRIGHT
 
 import numpy as np
+from fsl.data.image import Image
 
 # Generate directions on the sphere
 # def dirgen(ndir):
@@ -90,15 +91,16 @@ def vec_normalise(x, axis=0):
     """
     return x / np.linalg.norm(x, axis=axis, keepdims=True)
 
-def prepare_mask(maskfile, roi=None, scale=1):
+def prepare_mask(maskfile, roi=None, scale=1, slides=None, slide_direction='coronal'):
     """Create mask based on existing mask, additional mask, and ROI definition
+    WARNING!!!! If slides are provided, the code will assume that they are coronal!
 
     :param maskfile: str
     :param roi: tuple or list
     :param scale: int
+    :param slides: list of Image objects
     :return: 3D array
     """
-    from fsl.data.image import Image
     mask_img = Image(maskfile)
     if roi is not None:
         from fsl.wrappers.misc import fslroi
@@ -107,7 +109,59 @@ def prepare_mask(maskfile, roi=None, scale=1):
     if scale != 1:
         mask_img = upscale_image(mask_img, scale)
 
+    # only keep voxels that intersect with the slides
+    slides_mask = np.zeros_like(mask_img.data)
+    if slides is not None:
+        from fsl.utils.image.resample import resampleToReference
+        for sl_img in slides:
+            factor = 1
+            if slide_is_too_big(sl_img):
+                factor = 10
+            sl_resampled = resample_slide(sl_img, slide_direction=slide_direction, factor=factor)
+            sl_resampled, xform = resampleToReference(image=sl_resampled, reference=mask_img, mode='nearest', constrain=True)
+            sl_resampled[sl_resampled!=0] = 1.
+            sl_resampled = Image(sl_resampled, xform=xform, header=mask_img.header)
+            slides_mask += np.array(sl_resampled.data, dtype=int)
+    else:
+        slides_mask = np.ones_like(mask_img.data)
+
+    mask_img = Image(mask_img.data * slides_mask, header = mask_img.header)
+
     return mask_img
+
+def slide_is_too_big(sl_img, N_MAX = 2000):
+    """Assess whether a slide is too big so it needs resampling
+
+    :param sl_img: Image object
+    :param N_MAX: int
+    :return: bool
+    """
+    N = max(sl_img.shape)
+    return N > N_MAX
+
+
+def resample_slide(sl_img, slide_direction='coronal', factor=1):
+    """Resample a slide
+
+    :param sl_img: Image object
+    :param slide_direction: one of 'coronal', 'sagittal', or 'axial'
+    :param factor: (int). E.g. factor=2 means voxels will be twice as big
+    :return: Image object
+    """
+    from fsl.utils.image.resample import resampleToReference, resampleToPixdims
+
+    assert slide_direction in ['coronal', 'sagittal', 'axial'], f"slide_direction must be one of 'coronal', 'sagittal', or 'axial'"
+    if factor == 1:
+        return sl_img
+    old_pixdim = sl_img.pixdim
+    if slide_direction == 'coronal':
+        new_pixdim = [factor*old_pixdim[0],        old_pixdim[1], factor*old_pixdim[2]]
+    elif slide_direction == 'sagittal':
+        new_pixdim = [       old_pixdim[0], factor*old_pixdim[1], factor*old_pixdim[2]]
+    else: #direction == 'axial'
+        slide_direction = [factor*old_pixdim[0], factor*old_pixdim[1],        old_pixdim[2]]
+    sl, xform = resampleToPixdims(sl_img, new_pixdim, order=0)
+    return Image(sl, xform=xform, header=sl_img.header)
 
 
 def upscale_image(img, scale):
@@ -117,10 +171,44 @@ def upscale_image(img, scale):
     :return: Image object
     """
     from fsl.utils.image.resample import resampleToPixdims
-    from fsl.data.image import Image
     newimg, xform = resampleToPixdims(img, np.array(img.pixdim)/scale, order=0)
     return Image(newimg, xform=xform, header=img.header)
 
+
+
+def order_voxels(voxels, direction='coronal'):
+    """Re-order voxels according to slicing directions
+    This is useful if we want to start caching slides
+    The we should be traversing voxels in roughly the same order
+    as the slides
+
+    :param voxels: Nx3 array
+    :param direction: one of 'coronal', 'axial', or 'sagittal'
+    :return: Nx3 reordered voxels as array
+    """
+    allowed_directions = ['coronal', 'axial', 'sagittal']
+    assert direction.lower() in allowed_directions, f"allowed directions : {allowed_directions} but {direction} provided"
+
+    if direction.lower() == 'coronal':
+        idx = np.argsort(voxels[:,1])
+        return voxels[idx,:]
+    elif direction.lower() == 'axial':
+        idx = np.argsort(voxels[:,2])
+        return voxels[idx,:]
+    else:
+        idx = np.argsort(voxels[:,0])
+        return voxels[idx,:]
+
+
+# ---- Memory management ---- #
+from functools import lru_cache
+@lru_cache(maxsize=10)
+def get_data(slide):
+    """ Get image data with restricted caching
+    :param slide: Image object
+    :return:array
+    """
+    return Image(slide.dataSource).data
 
 # Time things
 import time

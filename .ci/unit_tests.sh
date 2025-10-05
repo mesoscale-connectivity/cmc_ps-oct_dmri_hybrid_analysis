@@ -12,6 +12,15 @@ micromamba create -y \
 micromamba activate ./fsl
 pip install .
 
+# Make sure we have latest (possibly development)
+# versions of the core dependencies
+PIPARGS=" --retries 10 "
+PIPARGS+="--timeout 30 "
+PIPARGS+="--trusted-host files.pythonhosted.org "
+PIPARGS+="--trusted-host pypi.org "
+
+pip install $PIPARGS git+https://git.fmrib.ox.ac.uk/fsl/fslpy.git
+
 export FSLDIR=./fsl
 source $FSLDIR/etc/fslconf/fsl.sh
 pytest -v .

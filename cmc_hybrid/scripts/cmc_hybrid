@@ -34,6 +34,8 @@ def parse_cmdline_args():
                    help="f-threshold")
     p.add_argument("-s", "--scale", required=False, type=int, default=1,
                    help="upsampling factor (e.g. 1, 2, 4, etc.)")
+    p.add_argument("--slicedir", required=False, type=str, default='coronal',
+                   help="slice direction. one of 'coronal' (default), 'sagittal', or 'axial'")
     p.add_argument("--SHorder", required=False, type=int, default=8,
                    help="spherical harmonics order. default=8.")
     p.add_argument('--verbose', required=False, action='store_true',
@@ -74,7 +76,7 @@ def main():
     maskfile = args.mask
     if args.mask is None:
         maskfile = os.path.join(args.bpx,'nodif_brain_mask')
-    mask_img = utils.prepare_mask(maskfile, args.roi, args.scale)
+    mask_img = utils.prepare_mask(maskfile, args.roi, args.scale, slides)
     mask     = mask_img.data
 
     if args.verbose:
@@ -83,6 +85,8 @@ def main():
     # Prepare voxels based on roi and mask
     # voxels contains all the voxel coordinates within the mask and the roi
     voxels = np.argwhere(mask)
+    # reorder by slicing axis for more efficient caching
+    voxels = utils.order_voxels(voxels, args.slicedir)
 
     if len(voxels)==0:
         raise(Exception("Found no voxels to process. Please check the mask and roi definitions."))
@@ -188,9 +192,9 @@ def main():
         results = Parallel(verbose=verbosity)(delayed(func)(vox) for vox in voxels_both)
 
     # Run Sequentially (for testing)
-    # for vox in voxels_both:
-    #     print(vox)
-    #     results.append( func(vox) )
+    #for vox in voxels_both:
+    #    print(vox)
+    #    results.append( func(vox) )
 
     # Save output
     print('...saving')
@@ -229,6 +233,7 @@ def check_args(args):
     allowed_output_types = ['h-fod', 'h-dyad','psoct-dyad']
     assert args.output_type in allowed_output_types, f"output_type must be one of {allowed_output_types}, but value given is {args.output_type}"
 
+    assert args.slicedir == 'coronal', "slicedir must be 'coronal' for now. sorry!"
 
 if __name__ == '__main__':
     main()
