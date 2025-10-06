@@ -7,7 +7,7 @@ micromamba create -y \
   -c https://fsl.fmrib.ox.ac.uk/fsldownloads/fslconda/public/ \
   -c conda-forge \
   -p ./fsl \
-  fsl-avwutils fsl-flirt \
+  fsl-avwutils fsl-flirt git \
   python $(cat ${projroot}/requirements.txt)
 micromamba activate ./fsl
 pip install .

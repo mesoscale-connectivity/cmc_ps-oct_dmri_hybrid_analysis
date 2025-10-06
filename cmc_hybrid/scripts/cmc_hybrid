@@ -167,10 +167,13 @@ def main():
 
         # calc dyads
         if output_type == 'h-dyad':
-            fod_coef  = utils.make_dyads(h_vecs)
+            dyads  = utils.make_dyads(h_vecs)
+            return dyads
         elif output_type == 'h-fod':
             fod_coef  = fod.fit_sh_fod(h_vecs, max_order=SHorder, symmetric=True, normalise=True)
-        return fod_coef
+            return fod_coef
+        else:
+            raise(Exception(f"output_type must be one of 'h-fod', 'h-dyad', or 'psoct-dyad'"))
 
     # ------------------------------------------------------------------------------
 
@@ -185,8 +188,23 @@ def main():
     # func = partial(process_voxel, ths=ths, phs=phs)
     func = partial(process_voxel_hybrid, ths=ths, phs=phs, fs=fs, slides=slides, volume=mask_img,
                    output_type=args.output_type, deterministic=args.deterministic, f_thr=args.f_thr, SHorder=args.SHorder)
-    results = []
 
+
+    if args.verbose:
+        print(
+            f"""
+            Running process_voxel_hybrid with the following arguments:
+            output_type   : {args.output_type}, 
+            deterministic : {args.deterministic},
+            f_thr         : {args.f_thr},
+            SHorder       : {args.SHorder}
+            
+            volume        : {mask_img.dataSource},
+            slides        : {[sl.dataSource for sl in slides]}, 
+            """
+        )
+
+    results = []
     with parallel_backend("threading", n_jobs=n_workers):
         verbosity = 13 if args.verbose else 0
         results = Parallel(verbose=verbosity)(delayed(func)(vox) for vox in voxels_both)
@@ -199,16 +217,17 @@ def main():
     # Save output
     print('...saving')
     results = np.array(results)
-    save_results(results, mask_img, args.out)
+    save_results(results, voxels, mask_img, args.out)
 
     # Finish.
     print("Done.")
 
 # -------------- Other functions ------------------------- #
-def save_results(results, mask_img, outfile):
+def save_results(results, voxels, mask_img, outfile):
     """Save results are a NIFTI file
 
     :param results: array
+    :param voxels: array
     :param mask_img: Image obj
     :param outfile: str
     :return:
@@ -219,9 +238,8 @@ def save_results(results, mask_img, outfile):
     out_shape = mask_img.shape+(n,)
 
     out_array = np.zeros(out_shape)
-    out_array = np.reshape(out_array, (-1,n))
-    out_array[mask_img.data.flatten()>0,:] = results
-    out_array = np.reshape(out_array, out_shape)
+    out_array[voxels[:,0], voxels[:,1],voxels[:,2],:] = results
+
     Image(out_array, header=mask_img.header).save(outfile)
 
     return

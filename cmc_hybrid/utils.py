@@ -179,25 +179,23 @@ def upscale_image(img, scale):
 def order_voxels(voxels, direction='coronal'):
     """Re-order voxels according to slicing directions
     This is useful if we want to start caching slides
-    The we should be traversing voxels in roughly the same order
+    Then we should be traversing voxels in roughly the same order
     as the slides
 
     :param voxels: Nx3 array
     :param direction: one of 'coronal', 'axial', or 'sagittal'
-    :return: Nx3 reordered voxels as array
+    :return: (N,3) reordered voxels as array
     """
     allowed_directions = ['coronal', 'axial', 'sagittal']
     assert direction.lower() in allowed_directions, f"allowed directions : {allowed_directions} but {direction} provided"
 
     if direction.lower() == 'coronal':
         idx = np.argsort(voxels[:,1])
-        return voxels[idx,:]
     elif direction.lower() == 'axial':
         idx = np.argsort(voxels[:,2])
-        return voxels[idx,:]
     else:
         idx = np.argsort(voxels[:,0])
-        return voxels[idx,:]
+    return voxels[idx,:]
 
 
 # ---- Memory management ---- #
