@@ -91,7 +91,7 @@ def vec_normalise(x, axis=0):
     """
     return x / np.linalg.norm(x, axis=axis, keepdims=True)
 
-def prepare_mask(maskfile, roi=None, scale=1, slides=None, slide_direction='coronal'):
+def prepare_mask(maskfile, roi=None, resolution=[0.4,0.4,0.4], slides=None, slide_direction='coronal'):
     """Create mask based on existing mask, additional mask, and ROI definition
     WARNING!!!! If slides are provided, the code will assume that they are coronal!
 
@@ -106,8 +106,8 @@ def prepare_mask(maskfile, roi=None, scale=1, slides=None, slide_direction='coro
         from fsl.wrappers.misc import fslroi
         from fsl.wrappers import LOAD
         mask_img = Image(fslroi(mask_img, LOAD, *roi).output)
-    if scale != 1:
-        mask_img = upscale_image(mask_img, scale)
+    if not np.allclose(resolution, (0.4,0.4,0.4)):
+        mask_img = anisotropic_upscale_image(mask_img, resolution)
 
     # only keep voxels that intersect with the slides
     slides_mask = np.zeros_like(mask_img.data)
@@ -122,6 +122,54 @@ def prepare_mask(maskfile, roi=None, scale=1, slides=None, slide_direction='coro
             sl_resampled[sl_resampled!=0] = 1.
             sl_resampled = Image(sl_resampled, xform=xform, header=mask_img.header)
             slides_mask += np.array(sl_resampled.data, dtype=int)
+    else:
+        slides_mask = np.ones_like(mask_img.data)
+
+    mask_img = Image(mask_img.data * slides_mask, header = mask_img.header)
+
+    return mask_img
+
+def prepare_mask_slidedeck(maskfile, roi=None, resolution=[0.4,0.4,0.4], slidedeck=None, slide_direction='coronal', matOrWarp=None):
+    """Create mask based on existing mask, additional mask, and ROI definition
+    WARNING!!!! If slidedeck is provided, the code will assume that it is coronal!
+
+    :param maskfile: str
+    :param roi: tuple or list
+    :param scale: int
+    :param slidedeck: Image object
+    :return: 3D array
+    """
+    mask_img = Image(maskfile)
+    if roi is not None:
+        from fsl.wrappers.misc import fslroi
+        from fsl.wrappers import LOAD
+        mask_img = Image(fslroi(mask_img, LOAD, *roi).output)
+    if not np.allclose(resolution, (0.4,0.4,0.4)):
+        mask_img = anisotropic_upscale_image(mask_img, resolution)
+
+    # only keep voxels that intersect with the slides
+    if slidedeck is not None:
+        sl_img = slidedeck
+        # If a transformation matrix of warpfield is provided, then transform slidedeck to reference space
+        if matOrWarp is not None:
+            from cmc_hybrid.coordinate_mapping import _matOrNifti
+            format, _ = _matOrNifti(matOrWarp)
+            if format == 'mat':
+                from fsl.wrappers import applyxfm
+                sl_img = Image(applyxfm(sl_img, maskfile, matOrWarp, out=LOAD)['out'])
+            elif format == 'nii':
+                from fsl.wrappers.fnirt import applywarp
+                sl_img = Image(applywarp(sl_img, maskfile, LOAD, warp=matOrWarp)['out'])
+        factor = 1
+        if slide_is_too_big(sl_img):
+            factor = 10
+        # TODO review if resample_slide is valid for slide_decks or need to downsample all 3 dimensions
+        sl_resampled = resample_slide(sl_img, slide_direction=slide_direction, factor=factor)
+        from fsl.utils.image.resample import resampleToReference
+        sl_resampled, xform = resampleToReference(image=sl_resampled, reference=mask_img, mode='nearest', constrain=True)
+        sl_resampled[sl_resampled!=0] = 1.
+        sl_resampled = Image(sl_resampled, xform=xform, header=mask_img.header)
+        slides_mask = np.array(sl_resampled.data, dtype=int)
     else:
         slides_mask = np.ones_like(mask_img.data)
 
@@ -164,16 +212,45 @@ def resample_slide(sl_img, slide_direction='coronal', factor=1):
     return Image(sl, xform=xform, header=sl_img.header)
 
 
-def upscale_image(img, scale):
+def upscale_image(img, target_pixdims=None):
     """
     :param img: Image object (FSLPY)
     :param scale: scalar
     :return: Image object
     """
     from fsl.utils.image.resample import resampleToPixdims
-    newimg, xform = resampleToPixdims(img, np.array(img.pixdim)/scale, order=0)
+    
+    if target_pixdims is not None:
+        new_dim = np.array(target_pixdims)
+    else:
+        new_dim = np.array(img.pixdim)
+    newimg, xform = resampleToPixdims(img, new_dim, order=0)
     return Image(newimg, xform=xform, header=img.header)
 
+def anisotropic_upscale_image(img, target_pixdims=None, order=0):
+    """
+    Resample an FSLPY Image to anisotropic voxel sizes.
+
+    - If `target_pixdims` is provided (tuple/list length 3), it is used directly (in mm).
+
+    Args:
+        img: FSLPY Image
+        target_pixdims: (dx,dy,dz) in mm (optional). preferred for clarity
+        order: interpolation order (0=nearest, 1=linear, 3=cubic). Use 0 for labels.
+
+    Returns:
+        FSLPY Image (resampled)
+    """
+    from fsl.utils.image.resample import resampleToPixdims
+
+    if target_pixdims is not None:
+        new_pix = np.array(target_pixdims)
+    else:
+        new_pix = np.array(img.pixdim)
+
+    newimg, xform = resampleToPixdims(img, new_pix, order=order)
+
+    return Image(newimg, xform=xform, header=img.header)
 
 
 def order_voxels(voxels, direction='coronal'):
@@ -236,13 +313,14 @@ def fudge_psoct_orientation(theta, angle=22.):
     :param angle: float (degrees)
     :return: 1D array
     """
-    # z = np.exp(-1j*np.array(theta))
-    # z *= np.exp(np.pi+1j*2*angle)
-    # theta = np.angle(z)/2.
-
     theta = np.array(theta)/2.
     theta = np.pi - theta + angle*np.pi/180.
     theta = np.where(theta <= 0, theta + np.pi, theta)
     theta = np.where(theta > np.pi, theta - np.pi, theta)
+
+    # theta = np.array(theta)/2.
+    # theta = theta - angle*np.pi/180.
+    # theta = np.where(theta <= 0, theta + np.pi, theta)
+    # theta = np.where(theta > np.pi, theta - np.pi, theta)
 
     return theta

@@ -15,17 +15,17 @@ import numpy as np
 from scipy.spatial import KDTree
 
 # Hybrid vectors
-def hybrid_vecs(th_samples, ph_samples, f_samples, vecs, weighted=False, deterministic=False):
+def hybrid_vecs(th_samples, ph_samples, f_samples, vecs, retardance, thr_retardance=19, output_type="h-dyad", weighted=False, deterministic=False):
     """Create hybrid vectors from 2D and 3D samples
 
     :param th_samples: bpx samples (array)
     :param ph_samples: bpx samples (array)
     :param f_samples: bpx samples (array)
     :param vecs: psoct samples (array)
+    :param retardance: retardance values (array)
+    :param thr_retardance: threshold for retardance
     :return: array
     """
-    #print(th_samples)
-    #print(vecs)
 
     # 1) find plane for vecs
     V = np.linalg.svd(vecs, full_matrices=False)[-1].T  # 3x3
@@ -35,9 +35,13 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs, weighted=False, determi
     v_plane    = utils.vec_normalise(v@V, 1)
     vecs_plane = utils.vec_normalise(vecs@V, 1)
 
-
     # 3) argmax of cosine angle
     a = (utils.vec_normalise(vecs_plane[:,:2],1) @ utils.vec_normalise(v_plane[:,:2],1).T)**2  # Nxn
+
+    # 4) thresholded with the f
+    mask = (f_samples > 0).astype(float)
+    a = a * mask[None, :]
+
     # weighted by f_samples
     if weighted:
         a = a * f_samples[None,:]
@@ -46,18 +50,41 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs, weighted=False, determi
     else:
         idx = sample_from(a, axis=1)
 
-    x  = vecs_plane[:,0]
-    y  = vecs_plane[:,1]
+
+    # 5) negate the inplane to align mic and mri
+    v_plane_part = v_plane[idx,:]
+    cosang = np.sum(vecs_plane[:, :2] * v_plane_part[:, :2], axis=1)
+    neg = cosang < 0
+    vecs_plane[neg] *= -1.0
+
+    # threshold with retardance
+    if retardance is not None:
+        
+        retardance = np.array([retardance])
+        mask = retardance > thr_retardance
+        chosen_xy = np.where(mask.squeeze()[:, None], vecs_plane[:, :2], 0)
+        x = chosen_xy[:, 0]
+        y = chosen_xy[:, 1]
+
+    else:
+        x  = vecs_plane[:,0]
+        y  = vecs_plane[:,1]
+
     z  = v_plane[idx,2]
 
+    x, y, z = x[x*y != 0], y[x*y != 0], z[x*y != 0]
+
     alpha = np.sqrt((1-z**2) / (x**2+y**2))
-    xyz   = [alpha*x,alpha*y,z]
+
+    if output_type == "inplane-dMRI":
+        xyz   = [v_plane[idx,0],v_plane[idx,1],np.zeros_like(v_plane[idx,2])]
+    else:
+        xyz   = [alpha*x,alpha*y,z]
 
     new_vecs = np.stack(xyz, axis=1)
     new_vecs = new_vecs@V.T
     new_vecs = utils.vec_normalise(new_vecs, 1)
 
-    # 4) return 3D vector
     return new_vecs
 
 
@@ -148,6 +175,13 @@ def fit_sh_fod(xyz, max_order=4, symmetric=True, weights=None, kde_bw = 20., nor
     Returns: SH coefficients (array)
 
     """
+    # Identify rows that contain NaN or Inf
+    valid_rows = ~np.any(np.isnan(xyz) | np.isinf(xyz), axis=1)
+    xyz = xyz[valid_rows]
+    if xyz.shape[0] == 0:
+        print("Warning: No valid rows left after removing NaN or Inf values. Using max order = 8")
+        return np.zeros(45)
+
     if weights is not None:
         assert len(weights) == xyz.shape[0], f"length of weights {len(weights)} incompatible with length of input {xyz.shape[1]}"
 

@@ -30,8 +30,9 @@ def test_hybrid_vecs():
     ph = np.random.randn(100)
     f = np.random.rand(100)
     vecs = np.random.randn(200,3)
-    new_vecs = fod.hybrid_vecs(th, ph, f, vecs)
-    assert new_vecs.shape == (200,3)
+    retardance = np.random.randn(200,1)
+    new_vecs = fod.hybrid_vecs(th, ph, f, vecs, retardance)
+    assert new_vecs.shape <= (200,3)
 
 
     #
