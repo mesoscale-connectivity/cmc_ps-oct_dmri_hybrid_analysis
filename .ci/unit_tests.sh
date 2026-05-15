@@ -8,9 +8,12 @@ micromamba create -y \
   -c conda-forge \
   -p ./fsl \
   fsl-avwutils fsl-flirt git \
-  python $(cat ${projroot}/requirements.txt)
+  python
 micromamba activate ./fsl
-pip install .
+
+pip install --upgrade pip
+pip install -r "${projroot}/requirements.txt"
+pip install .[dev]
 
 # Make sure we have latest (possibly development)
 # versions of the core dependencies

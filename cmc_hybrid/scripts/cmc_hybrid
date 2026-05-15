@@ -3,7 +3,7 @@
 
 # cmc_hybrid - runs hybrid modelling of dMRI and tractography
 #
-# Author: Silei Zhu, Saad Jbabdi, Amy Howard
+# Author: Silei Zhu, Saad Jbabdi, Amy Howard, Vasilis Karlaftis
 #
 # Copyright (C) 2025 University of Oxford
 # SHBASECOPYRIGHT
@@ -14,34 +14,45 @@ def parse_cmdline_args():
     p = argparse.ArgumentParser(description="CMC hybrid per-voxel processor")
 
    # Compulsory arguments
-    p.add_argument("--psoct",required=True,nargs="+",
-                   help="psoct slides files")
-    p.add_argument("--bpx",required=True,
+    p.add_argument("--ori_slides_dir", required=True,
+                   help="Directory of PSOCT Orientation slides")
+    p.add_argument("--slidedeck", required=True,
+                    help="PSOCT slidedeck file")
+    p.add_argument("--slide_mapping", required=True,
+                    help="JSON file of slidedeck to slides mapping")
+    p.add_argument("--bpx", required=True,
                    help="location of the bedpostX folder")
     p.add_argument("-o", "--out", required=True,
                    help="prefix for output files")
     # Optional arguments
+    p.add_argument("--ret_slides_dir", required=False,
+                   help="Directory of PSOCT Retardance slides")
+    p.add_argument("--retardance_threshold", required=False, type=float, default=19,
+                   help="Threshold for Rretardance images")
+    p.add_argument("--slide2vol", required=False,
+                    help="psoct-to-mri transformation matrix or warp field")
+    p.add_argument("--vol2slide", required=False,
+                    help="mri-to-psoct transformation matrix or warp field")
     p.add_argument("--roi", required=False, nargs=6, type=int,
                    help="-roi <xmin> <xsize> <ymin> <ysize> <zmin> <zsize> : only look inside roi (using voxel coordinates). Inputting -1 for a size will set it to the full image extent for that dimension.")
     p.add_argument("--mask", required=False, help="brain mask")
     p.add_argument("-j", "--jobs", type=int,
                    help="parallel workers (default=max available)")
     p.add_argument("--output_type", required=False, type=str, default='h-fod',
-                   help="type of output: h-fod (default) or h-dyad or psoct-dyad")
+                   help="type of output: h-fod (default) or h-dyad or psoct-dyad or psoct-fod, inplane-dMRI")
     p.add_argument("--deterministic", required=False, action='store_true',
                    help="deterministic out-of-plane sampling (only relevant for FOD output)")
     p.add_argument("--f_thr", required=False, type=float,
                    help="f-threshold")
-    p.add_argument("-s", "--scale", required=False, type=int, default=1,
-                   help="upsampling factor (e.g. 1, 2, 4, etc.)")
-    p.add_argument("--slicedir", required=False, type=str, default='coronal',
+    p.add_argument("-s", "--resolution", nargs=3, type=float, metavar=('SX','SY','SZ'),
+                    help="target resolution, e.g. -s 0.4 0.4 0.4", default=[0.4, 0.4, 0.4])
+    p.add_argument("--slice_axis", required=False, type=str, default='coronal',
                    help="slice direction. one of 'coronal' (default), 'sagittal', or 'axial'")
     p.add_argument("--SHorder", required=False, type=int, default=8,
                    help="spherical harmonics order. default=8.")
-    p.add_argument('--verbose', required=False, action='store_true',
+    p.add_argument("--verbose", required=False, action='store_true',
                     help='print out messages')
     return p.parse_args()
-
 
 
 def main():
@@ -55,6 +66,7 @@ def main():
     # More imports here so that running --help doesn't do unnecessary imports
     from fsl.data.image import Image
     import os
+    import json
     from glob import glob
     import numpy as np
     from joblib import Parallel, delayed, parallel_backend
@@ -66,8 +78,11 @@ def main():
     # Find slides
     if args.verbose:
         print("...Read slides")
-    slide_files   = args.psoct
-    slides = [Image(sl) for sl in slide_files]
+
+    slide_deck = Image(args.slidedeck)
+
+    with open(args.slide_mapping, 'r') as file:
+        slide_map = json.load(file)
 
     # Load image files from database
     if args.verbose:
@@ -76,7 +91,8 @@ def main():
     maskfile = args.mask
     if args.mask is None:
         maskfile = os.path.join(args.bpx,'nodif_brain_mask')
-    mask_img = utils.prepare_mask(maskfile, args.roi, args.scale, slides)
+
+    mask_img = utils.prepare_mask_slidedeck(maskfile, args.roi, args.resolution, slide_deck, slide_direction=args.slice_axis, matOrWarp=args.slide2vol)
     mask     = mask_img.data
 
     if args.verbose:
@@ -86,7 +102,7 @@ def main():
     # voxels contains all the voxel coordinates within the mask and the roi
     voxels = np.argwhere(mask)
     # reorder by slicing axis for more efficient caching
-    voxels = utils.order_voxels(voxels, args.slicedir)
+    voxels = utils.order_voxels(voxels, args.slice_axis)
 
     if len(voxels)==0:
         raise(Exception("Found no voxels to process. Please check the mask and roi definitions."))
@@ -120,7 +136,7 @@ def main():
         if args.verbose:
             print('......loaded')
 
-    # --------- Parallalised functions --------------- #
+    # --------- Parallelised functions --------------- #
     # def process_voxel(vox_coord, ths, phs, fs):
     #     x,y,z = vox_coord
     #     th_samples = [th[x,y,z,:] for th in ths]
@@ -130,31 +146,54 @@ def main():
     #     dyads      = [utils.make_dyads(v) for v in vecs]
     #     return dyads
 
-    def process_voxel_hybrid(vox_both, ths, phs, fs, slides, volume, output_type, deterministic, f_thr, SHorder):
+    def process_voxel_hybrid(vox_both, ths, phs, fs, volume, ori_slides_dir, ret_slides_dir, retardance_threshold, slide_deck, slide_mapping, slide2vol, vol2slide, output_type, deterministic, f_thr, SHorder):
         """
         For now, simply find the slides that intersect, the pixels in the voxel, and count them
         return the number of pixels in the voxel
         """
         # Get pixels and data
         vox_coord, vox_diff = vox_both
-        pixgrid, voxgrid, theta = cm.vox_to_pix(vox_coord, slides, volume)
+        pixgrid, voxgrid, slide_index, theta, retardance = cm.vox_to_pix_slidedeck(vox_diff, volume, ori_slides_dir, ret_slides_dir, slide_deck, slide_mapping, slide2vol, vol2slide,  direction=args.slice_axis)
+        # theta here ^ is defined in the pixel / slide space
+
+        # flatten theta for the next check
+        flattened_theta = [item for sublist in theta for item in (sublist if isinstance(sublist, np.ndarray) else [sublist])]
         # need at least three values to get a 3x3 SVD later
-        if len(theta) < 3:
-            if output_type in ['h-dyad', 'psoct-dyad']:
+        if len(flattened_theta) < 3:
+            if output_type in ['h-dyad', 'psoct-dyad', 'inplane-dMRI']:
                 return np.zeros(3)
             else:
                 n = fod.SHcoeffLen(SHorder)
                 return np.zeros(n)
+        
+        # TODO remove the if statement and handle it within the new functions
+        if args.slide2vol is not None:
+            format, _ = cm._matOrNifti(args.slide2vol)
+            # for the linear case, use slide_to_volume
+            if format == 'mat':
+                theta = utils.fudge_psoct_orientation(theta)
+                # turn theta into vector and re-code in diffusion space?
+                slide0 = glob(ori_slides_dir + '/' + slide_mapping['0'])
+                if len(slide0) == 0:
+                    raise ValueError(f"No files found for index '0' in {ori_slides_dir}")
+                xform = cm.slide_to_volume(volume, Image(slide0[0]), slide_deck, slide2vol)
+                vecs  = cm.angle_to_vector(theta, xform=xform)
+            
+            # for the non-linear case, use slide_to_deck & slidedeck_to_volume
+            elif format == 'nii':
+                # convert vecs from slide to slidedeck space
+                vecs = cm.slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping,direction=args.slice_axis)
+                # convert vecs from slidedeck to dMRI space
+                vecs = cm.slidedeck_to_volume(vecs, vox_diff, slide2vol)
 
-        # fudge orientation data
-        theta = utils.fudge_psoct_orientation(theta)
-        # turn theta into vector and re-code in diffusion space?
-        xform = cm.slide_to_volume(slides[0], volume)
-        vecs  = cm.angle_to_vector(theta, xform=xform)
         # stop here if only psoct-dyad are requested
         if output_type == 'psoct-dyad':
             dyad  = utils.make_dyads(vecs)
             return dyad
+        if output_type == 'psoct-fod':
+            fod_coef  = fod.fit_sh_fod(vecs, max_order=SHorder, symmetric=True, weights=None, kde_bw = 20., normalise = False, output_kde=False)
+            return np.squeeze(np.array([fod_coef]))
+        
         # calc_hybrid orientations
         x,y,z      = np.array(vox_diff).astype(int)
         th_samples = np.array([th[x,y,z,:] for th in ths]).flatten()
@@ -163,17 +202,17 @@ def main():
         if f_thr is not None:
             f_samples[f_samples<f_thr] = 0.
 
-        h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs, weighted=True, deterministic=deterministic)
+        h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs, retardance, retardance_threshold, output_type, weighted=True, deterministic=deterministic)
 
         # calc dyads
-        if output_type == 'h-dyad':
+        if output_type == 'h-dyad' or output_type == 'inplane-dMRI':
             dyads  = utils.make_dyads(h_vecs)
             return dyads
         elif output_type == 'h-fod':
             fod_coef  = fod.fit_sh_fod(h_vecs, max_order=SHorder, symmetric=True, normalise=True)
             return fod_coef
         else:
-            raise(Exception(f"output_type must be one of 'h-fod', 'h-dyad', or 'psoct-dyad'"))
+            raise(Exception(f"output_type must be one of 'h-fod', 'h-dyad', 'inplane-dMRI' 'psoct-fod' or 'psoct-dyad'"))
 
     # ------------------------------------------------------------------------------
 
@@ -185,9 +224,44 @@ def main():
         import multiprocessing as mp
         n_workers = mp.cpu_count() - 1
 
-    # func = partial(process_voxel, ths=ths, phs=phs)
-    func = partial(process_voxel_hybrid, ths=ths, phs=phs, fs=fs, slides=slides, volume=mask_img,
-                   output_type=args.output_type, deterministic=args.deterministic, f_thr=args.f_thr, SHorder=args.SHorder)
+    # Load transformation matrices and warp fields
+    # Check the slide2vol argument type
+    if args.slide2vol is not None:
+        format, _ = cm._matOrNifti(args.slide2vol)
+        if format == 'mat':
+            from fsl.transform.flirt import readFlirt, fromFlirt
+            slide2vol = readFlirt(args.slide2vol)
+            slide2vol = fromFlirt(slide2vol, slide_deck, Image(maskfile), from_='world', to='world')
+        elif format == 'nii':
+            from fsl.transform.fnirt import readFnirt
+            slide2vol = readFnirt(args.slide2vol, slide_deck, Image(maskfile))
+            # load Image data to expedite the parallel processing
+            slide2vol.transform([0,0,0], 'voxel', 'world')
+        else:
+            print("Argument 'slide2vol' must be either a .mat or a .nii file. Ignoring this argument.")
+            slide2vol = None
+    else:
+        slide2vol = None
+    # Check the vol2slide argument type
+    if args.vol2slide is not None:
+        format, _ = cm._matOrNifti(args.vol2slide)
+        if format == 'nii':
+            from fsl.transform.fnirt import readFnirt
+            vol2slide = readFnirt(args.vol2slide, Image(maskfile), slide_deck)
+            # load Image data to expedite the parallel processing
+            vol2slide.transform([0,0,0], 'world', 'voxel')
+        else:
+            print("Argument 'vol2slide' must be either a .nii file. Ignoring this argument.")
+            vol2slide = None
+    else:
+        vol2slide = None
+
+    func = partial(process_voxel_hybrid, ths=ths, phs=phs, fs=fs, volume=Image(maskfile),
+                   ori_slides_dir=args.ori_slides_dir, ret_slides_dir=args.ret_slides_dir,
+                   retardance_threshold=args.retardance_threshold,
+                   slide_deck=slide_deck, slide_mapping=slide_map,
+                   slide2vol=slide2vol, vol2slide=vol2slide, output_type=args.output_type,
+                   deterministic=args.deterministic, f_thr=args.f_thr, SHorder=args.SHorder)
 
 
     if args.verbose:
@@ -200,7 +274,7 @@ def main():
             SHorder       : {args.SHorder}
             
             volume        : {mask_img.dataSource},
-            slides        : {[sl.dataSource for sl in slides]}, 
+            ori_slides_dir    : {args.ori_slides_dir}, 
             """
         )
 
@@ -215,12 +289,14 @@ def main():
     #    results.append( func(vox) )
 
     # Save output
-    print('...saving')
+    if args.verbose:
+        print('...saving')
     results = np.array(results)
     save_results(results, voxels, mask_img, args.out)
 
     # Finish.
-    print("Done.")
+    if args.verbose:
+        print("Done.")
 
 # -------------- Other functions ------------------------- #
 def save_results(results, voxels, mask_img, outfile):
@@ -248,10 +324,13 @@ def save_results(results, voxels, mask_img, outfile):
 def check_args(args):
     """Check cmd line args
     """
-    allowed_output_types = ['h-fod', 'h-dyad','psoct-dyad']
+    allowed_output_types = ['h-fod', 'h-dyad','psoct-dyad','inplane-dMRI', 'psoct-fod']
     assert args.output_type in allowed_output_types, f"output_type must be one of {allowed_output_types}, but value given is {args.output_type}"
 
-    assert args.slicedir == 'coronal', "slicedir must be 'coronal' for now. sorry!"
+    allowed_slice_axes = ['coronal', 'sagittal']
+    assert args.slice_axis in allowed_slice_axes, (
+        f"slice_axis must be one of {allowed_slice_axes}, but value given is {args.slice_axis!r}"
+    )
 
 if __name__ == '__main__':
     main()

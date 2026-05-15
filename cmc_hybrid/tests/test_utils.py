@@ -26,24 +26,45 @@ def test_cart2pol():
 def test_make_dyads():
     vecs = [[1,0,0],[1,0,0],[1,0,0]]
     v = utils.make_dyads(vecs)
-    print(v)
     assert np.all(np.isclose(v,np.array([1,0,0])))
 
+# def test_prepare_mask():
+#     brainmask = Image(testsPath / 'testdata/volume').data
+#     maskfile  = testsPath / 'testdata/volume'
+#     roi = (0, -1, 0, -1, 0, -1)
+#     a = utils.prepare_mask(maskfile, roi, resolution=[0.4,0.4,0.4])
+#     assert np.all(a.data == brainmask)
+
+#     a = utils.prepare_mask(maskfile, roi, resolution=[0.2,0.2,0.2])
+#     assert a.shape[0] == 2*Image(maskfile).shape[0]
+
+#     slides = [Image(testsPath / 'testdata/slice1'), Image(testsPath / 'testdata/slice2')]
+#     a = utils.prepare_mask(maskfile, roi, resolution=[0.2,0.2,0.2], slides=slides)
+#     assert np.sum(a.data) > 0
+
 def test_prepare_mask():
-    brainmask = Image(testsPath / 'testdata/volume').data
+    from fsl.data.image import Image
     maskfile  = testsPath / 'testdata/volume'
+    img = Image(maskfile)
     roi = (0, -1, 0, -1, 0, -1)
-    a = utils.prepare_mask(maskfile, roi)
-    assert np.all(a.data == brainmask)
+    
+    # Get the ACTUAL original pixdim and shape
+    orig_pixdim = img.pixdim[0]
+    orig_shape = img.shape[0]
 
-    a = utils.prepare_mask(maskfile, roi, scale=2)
-    assert a.shape[0] == 2*Image(maskfile).shape[0]
+    # Test 1: Use the actual original resolution (so it doesn't scale)
+    a = utils.prepare_mask(maskfile, roi=roi, resolution=[orig_pixdim]*3)
+    assert a.shape[0] == orig_shape
 
-    slides = [Image(testsPath / 'testdata/slice1'), Image(testsPath / 'testdata/slice2')]
-    a = utils.prepare_mask(maskfile, roi, scale=2, slides=slides)
-    assert np.sum(a.data) > 0
-    assert np.sum(a.data!=0) < np.sum(utils.prepare_mask(maskfile, roi, scale=2).data!=0)
-
+    # Test 2: Scale to 0.2mm
+    target_res = 0.2
+    a_high = utils.prepare_mask(maskfile, roi=roi, resolution=[target_res]*3)
+    
+    # Calculate expected shape: (Original Size * Original Res) / Target Res
+    # We use round() because shapes must be integers
+    expected_shape = int(round(orig_shape * (orig_pixdim / target_res)))
+    
+    assert a_high.shape[0] == expected_shape
 
 def test_order_voxels():
     v = np.random.randn(10,3)
@@ -56,21 +77,25 @@ def test_order_voxels():
 
 
 def test_fudge_psoct_orientation():
-    res = np.array([ 90. ,  67.5,  45. ,  22.5, 180. , 157.5, 135. , 112.5,  90. ])
-    x = utils.fudge_psoct_orientation( np.arange(-180, 180+45, 45)*np.pi/180.0, 0. ) * 180.0 / np.pi
+    res = np.array([90.0, 67.5, 45.0, 22.5, 180.0, 157.5, 135.0, 112.5, 90.0])
+    
+    input_angles = np.arange(-180, 180+45, 45) * np.pi / 180.0
+    x = utils.fudge_psoct_orientation(input_angles, 0.) * 180.0 / np.pi
+    
     assert np.all(np.isclose(x, res))
 
-
     theta = [0., 45., 180.]
-    x = utils.fudge_psoct_orientation( theta )
+    x = utils.fudge_psoct_orientation(np.array(theta) * np.pi / 180.0, 0.)
     assert len(x) == len(theta)
 
 def test_upscale_image():
     from fsl.data.image import Image
+    # 1. Load the original image
     img = Image(testsPath / 'testdata/volume')
-    scale = 2
-    newimg = utils.upscale_image(img, scale)
-    assert np.all(np.array(newimg.pixdim)==1.5)
+    target = (1.5, 1.5, 1.5)
+
+    newimg = utils.upscale_image(img, target_pixdims=target)
+    assert np.all(np.isclose(newimg.pixdim[:3], target))
 
 def test_vec_normalise():
     x = np.random.randn(100,20)

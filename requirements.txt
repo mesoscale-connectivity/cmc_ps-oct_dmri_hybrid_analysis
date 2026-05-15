@@ -2,7 +2,6 @@ numpy
 tqdm
 matplotlib
 fslpy
-pytest
 joblib
 scipy
 plotly

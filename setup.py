@@ -8,12 +8,23 @@ with open('requirements.txt', 'rt') as f:
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
-setup(name='cmc_hybrid',
-      description='Joint Modelling of dMRI and Microscopy (PSOCT)',
-      author=['Saad Jbabdi', 'Silei Zhu', 'Amy Howard'],
-      author_email='<saad.jbabdi@ndcn.ox.ac.uk> & <silei.zhu@ndcn.ox.ac.uk> & <amy.howard@ndcn.ox.ac.uk>',
-      packages=['cmc_hybrid',],
-      install_requires=install_requires,
-      scripts=['cmc_hybrid/scripts/cmc_hybrid','cmc_hybrid/scripts/cmc_slice_mask','cmc_hybrid/scripts/cmc_bpx2fod']
-      )
+setup(
+    name='cmc_hybrid',
+    description='Joint Modelling of dMRI and Microscopy (PSOCT)',
+    version="0.2",
 
+    author=['Saad Jbabdi', 'Silei Zhu', 'Amy Howard'],
+    author_email='<saad.jbabdi@ndcn.ox.ac.uk> & <silei.zhu@ndcn.ox.ac.uk> & <amy.howard@ndcn.ox.ac.uk>',
+    long_description=long_description,
+    long_description_content_type="text/markdown",
+
+    packages=['cmc_hybrid',],
+    install_requires=install_requires,
+    extras_require={
+        "dev": ["pytest"],
+    },
+
+    scripts=['cmc_hybrid/scripts/cmc_hybrid',
+             'cmc_hybrid/scripts/cmc_slice_mask',
+             'cmc_hybrid/scripts/cmc_bpx2fod']
+)

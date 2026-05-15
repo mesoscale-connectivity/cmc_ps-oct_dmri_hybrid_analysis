@@ -28,11 +28,14 @@ cmc_hybrid --help
 Here is an example call to the main script:
 
 ```bash
-cmc_hybrid  --psoct <PSOCT_FOLDER>/Slices*_header.nii.gz \
+cmc_hybrid  --ori_slides_dir <PSOCT_ORIENTATION_FOLDER> \
+            --slide_mapping <PSOCT_FOLDER>/slidedeck_slice_mapping.json \
             --bpx <BEDPOSTX_FOLDER>> \
             -o <OUTPUT_FILE> \
             --mask <BRAIN_MASK_IMAGE>  \
-            --scale 8 --roi <xmin> <xsize> <ymin> <ysize> <zmin> <zsize> \
+            -s 0.4 0.4 0.4 --roi <xmin> <xsize> <ymin> <ysize> <zmin> <zsize> \
+            --slide2vol=<PSOCT_FOLDER>/PSOCT_to_MRI_warpfield.nii.gz --vol2slide=<PSOCT_FOLDER>/MRI_to_PSOCT_warpfield.nii.gz \
+            --slidedeck=<PSOCT_FOLDER>/Ori_slide_deck.nii.gz \
             --verbose 
 	   
 ```
