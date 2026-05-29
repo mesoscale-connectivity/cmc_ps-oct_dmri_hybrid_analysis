@@ -27,6 +27,11 @@ def test_make_dyads():
     vecs = [[1,0,0],[1,0,0],[1,0,0]]
     v = utils.make_dyads(vecs)
     assert np.all(np.isclose(v,np.array([1,0,0])))
+    # 2D test
+    vecs = [[1,0],[1,0]]
+    v = utils.make_dyads(vecs)
+    assert np.all(np.isclose(v,np.array([1,0])))
+
 
 # def test_prepare_mask():
 #     brainmask = Image(testsPath / 'testdata/volume').data
@@ -120,4 +125,21 @@ def test_resample_slide():
     assert img_r.pixdim[0] == img.pixdim[0]*2
     assert img_r.pixdim[2] == img.pixdim[2]*2
     assert img_r.pixdim[1] == img.pixdim[1]
+
+
+def test_load_bpx():
+    bpxdir = testsPath / 'testdata/bpx'
+    ths, phs, fs = utils.load_bpx(bpxdir)
+    for x in [ths, phs, fs]:
+        assert type(x) is list
+        assert type(x[0]) is np.ndarray
+
+def test_get_bpx_voxel():
+    bpxdir = testsPath / 'testdata/bpx'
+    ths, phs, fs = utils.load_bpx(bpxdir)
+    vecs, fracs  = utils.get_bpx_voxel([1,1,1], ths, phs, fs, outtype='vectors')
+    th, ph, f    = utils.get_bpx_voxel([1,1,1], ths, phs, fs, outtype='angles')
+    sh           = utils.get_bpx_voxel([1,1,1], ths, phs, fs, outtype='SH')
+    assert vecs.shape[1] == 3
+    assert len(vecs) == len(fracs)
 

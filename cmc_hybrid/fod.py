@@ -288,3 +288,59 @@ def plot_odf_glyph(coeff, glyph=False, samples=None, notebook=False):
     # fig.show()
     return fig
 
+
+# 2D Plotting (copied from SPOT)
+def plot_FOD(bins, counts, ax=None):
+    """ Polar plot 2D FOD
+
+    :param bins: 1D array
+    :param counts: 1D array
+    :param ax: axis for plotting
+    :return: None
+    """
+    if ax is None:
+        ax = plt.subplot(111, projection='polar')
+    if isinstance(counts, list):
+        for c in counts:
+            ax.plot(bins, c)
+    else:
+        ax.plot(bins, counts)
+    ax.set_yticks([]), ax.set_xticks([])
+
+
+def plot_FOD_from_samples(A, nbins=101, normalise=False, ax=None):
+    """ Plot FOD in polar
+
+    :param A: (N,2) array
+    :param nbins: int
+    :param ax: axis to plot in
+    :return: None
+    """
+    counts, bins = FOD_from_samples(A, nbins)
+    if normalise:
+        counts = counts/np.sum(counts)
+    plot_FOD(bins, counts, ax)
+
+# ------------ MISC ------------------- #
+def FOD_from_samples(A, nbins):
+    """Histogram (FOD) of orientations in A (2-D).
+
+    :param A 2D array (N,2)
+    :param nbins (int)
+
+    :returns counts (1D array), angle bins (1D array)
+    """
+    if A.ndim > 2:
+        A = A.reshape(-1, A.shape[-1])
+    thetas = np.linspace(-np.pi, np.pi, nbins)
+    counts = np.zeros_like(thetas)
+    A0 = np.stack((np.cos(thetas), np.sin(thetas)), axis=1)
+
+    from scipy.spatial import KDTree
+    tree = KDTree(A0)
+    _, ii = tree.query(A, k=1)
+    counts += np.bincount(ii, minlength=len(counts))
+    _, ii = tree.query(-A, k=1)              # antipodal
+    counts += np.bincount(ii, minlength=len(counts))
+    return counts, thetas
+

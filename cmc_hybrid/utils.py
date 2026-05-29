@@ -74,11 +74,15 @@ def cart2pol(xyz):
 # ----- VECTOR STUFF --------- #
 def make_dyads(vecs):
     """calculate the dyadic vector average for a list of vectors
-    len(vecs)=N, each vec is 3x1
+    len(vecs)=N, each vec is nx1
     """
-    tens = np.array([[v[0]*v[0],v[0]*v[1],v[0]*v[2],v[1]*v[0],v[1]*v[1],v[1]*v[2],v[2]*v[0],v[2]*v[1],v[2]*v[2]] for v in vecs])
-    tens = np.mean(tens, axis=0)
-    tens = np.reshape(tens,(3,3))
+    #tens = np.array([[v[0]*v[0],v[0]*v[1],v[0]*v[2],v[1]*v[0],v[1]*v[1],v[1]*v[2],v[2]*v[0],v[2]*v[1],v[2]*v[2]] for v in vecs])
+    #tens = np.mean(tens, axis=0)
+    #tens = np.reshape(tens,(3,3))
+
+    # this is much faster with einsum and generalises to nD tensors (so we can use the same code for 2D and 3D)
+    tens = np.einsum('ij,ik->jk',vecs, vecs)/len(vecs)
+
     _,V = np.linalg.eigh(tens)
     return V[:,-1]
 
@@ -324,3 +328,60 @@ def fudge_psoct_orientation(theta, angle=22.):
     # theta = np.where(theta > np.pi, theta - np.pi, theta)
 
     return theta
+
+# ------------ DMRI Utils
+def load_bpx(bpxdir):
+    """Load bedpostx theta, phi, and volume fraction samples
+
+    :param bpxdir: Path to bedpostX directory
+    :return:
+    ths (lists of 4D arrays)
+    phs (lists of 4D arrays)
+    fs  (lists of 4D arrays)
+    """
+    from glob import glob
+    import os
+    ths = [Image(x).data for x in sorted(glob(os.path.join(bpxdir,'merged_th?samples.nii.gz')))]
+    phs = [Image(x).data for x in sorted(glob(os.path.join(bpxdir,'merged_ph?samples.nii.gz')))]
+    fs =  [Image(x).data for x in sorted(glob(os.path.join(bpxdir,'merged_f?samples.nii.gz')))]
+
+    return ths, phs, fs
+
+def get_bpx_voxel(vox, ths, phs, fs, outtype='angles'):
+    """Extract bedpostx samples for a single voxel into vectors
+
+    :param vox: (x, y, z) voxel coordinates
+    :param ths: List of theta volumes
+    :param phs: List of phi volumes
+    :param fs: List of volume-fraction volumes
+    :param outtype: one of 'angles', 'vectors', or 'SH'
+
+    :returns
+    if outtype is 'angles':
+        th,ph,f at the voxel
+    if outtype is 'vectors':
+        vecs, fracs
+    if outtype is 'SH':
+        SH coefficients
+    """
+
+    x,y,z      = vox
+    th_samples = np.array([th[x,y,z,:] for th in ths]).flatten()
+    ph_samples = np.array([ph[x,y,z,:] for ph in phs]).flatten()
+    f_samples  = np.array([f[x,y,z,:] for f in fs]).flatten()
+
+    if outtype == 'angles':
+        return th_samples, ph_samples, f_samples
+    if outtype == 'vectors':
+        ct,st,cp,sp=np.cos(th_samples),np.sin(th_samples),np.cos(ph_samples),np.sin(ph_samples)
+        v = np.array([st*cp,st*sp,ct]).T
+        return v, f_samples
+    if outtype == 'SH':
+        from cmc_hybrid import fod
+        SH  = fod.form_SHmat([th_samples, ph_samples], max_order=8)
+        def lsqL2(A, y, lamb=1e-10):
+            U,S,Vt = np.linalg.svd(A, full_matrices=False)
+            return Vt.T@((U.T@y)*(S/(S**2+lamb)))
+        fod_coeffs = lsqL2(SH, f_samples, 1e0)
+
+        return fod_coeffs
