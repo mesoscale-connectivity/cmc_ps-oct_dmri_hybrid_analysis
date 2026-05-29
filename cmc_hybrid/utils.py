@@ -284,10 +284,10 @@ from functools import lru_cache
 @lru_cache(maxsize=10)
 def get_data(slide):
     """ Get image data with restricted caching
-    :param slide: Image object
+    :param slide: str or Path object
     :return:array
     """
-    return Image(slide.dataSource).data
+    return Image(slide).data
 
 # Time things
 import time
