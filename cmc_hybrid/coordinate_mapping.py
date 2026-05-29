@@ -267,7 +267,7 @@ def vox_to_pix(vox, volume, slides, slide_deck=None, slide2vol=None, vol2slide=N
             pixgrid_all.extend(pixgrid[mask,:])
             voxgrid_all.extend(pixgrid2vox[mask,:])
             # get data
-            data = utils.get_data(slides[idx])
+            data = utils.get_data(slides[idx].dataSource)
             pixgrid_data_all.extend(map_coordinates(data, pixgrid[mask,:].T, order=0))
 
     return pixgrid_all, voxgrid_all, pixgrid_data_all
@@ -324,7 +324,7 @@ def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck
         pixgrid_all.extend(pixgrid[mask,:])
         voxgrid_all.extend(pixgrid2vox[mask,:])
         # get data
-        data = utils.get_data(slide)
+        data = utils.get_data(slide.dataSource)
         pixgrid_data_all.append(map_coordinates(data, pixgrid[mask,:].T, order=0))
         # keep track of slide index
         slide_index.append(idx)
@@ -332,7 +332,7 @@ def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck
         if ret_slides_dir is not None:
             slide = next(Path(ret_slides_dir).glob(slide_mapping[str(idx)]), None)
             if slide is not None:
-                retardance = utils.get_data(Image(slide))
+                retardance = utils.get_data(slide)
                 retardance_values = map_coordinates(retardance, pixgrid[mask,:].T, order=0)
                 retardance_data.extend(retardance_values)
 
