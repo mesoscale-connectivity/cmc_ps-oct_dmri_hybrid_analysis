@@ -328,7 +328,7 @@ def check_args(args):
     assert args.output_type in allowed_output_types, f"output_type must be one of {allowed_output_types}, but value given is {args.output_type}"
 
     allowed_slice_axes = ['coronal', 'sagittal']
-    assert args.slice_axis in allowed_slice_axes, (
+    assert args.slice_axis.lower() in allowed_slice_axes, (
         f"slice_axis must be one of {allowed_slice_axes}, but value given is {args.slice_axis!r}"
     )
 

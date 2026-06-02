@@ -9,6 +9,8 @@
 
 import numpy as np
 from fsl.data.image import Image
+from functools import lru_cache
+import time
 
 # Generate directions on the sphere
 # def dirgen(ndir):
@@ -24,9 +26,10 @@ from fsl.data.image import Image
 #         gps('grot', ndir, optws=True)
 #         return np.loadtxt(f'grot{ndir}.txt')
 #
+
+
 # Generate directions on the sphere
 # Drop gps - use fibonacci instead
-from functools import lru_cache
 @lru_cache(None)
 def dirgen(samples=1):
     """
@@ -35,7 +38,7 @@ def dirgen(samples=1):
     Args:
         samples : int
     """
-    points = np.array((samples,3))
+    points = np.array((samples, 3))
     phi = np.pi * (3. - np.sqrt(5.))  # golden angle in radians
 
     i = np.arange(samples)
@@ -45,46 +48,48 @@ def dirgen(samples=1):
     x = np.cos(t) * r
     z = np.sin(t) * r
 
-    points = np.asarray([x,y,z]).T
+    points = np.asarray([x, y, z]).T
 
     return points
 
-    
 
 # ----- SPHERICAL COORDS ----- #
-def pol2cart(th,ph):
+def pol2cart(th, ph):
     x = np.sin(th)*np.cos(ph)
     y = np.sin(th)*np.sin(ph)
     z = np.cos(th)
-    return np.array([x,y,z]).T
+    return np.array([x, y, z]).T
+
 
 def cart2pol(xyz):
-    n   = np.linalg.norm(xyz,axis=1,keepdims=True)
-    n[n==0] = 1
+    n   = np.linalg.norm(xyz, axis=1, keepdims=True)
+    n[n == 0] = 1
     xyz = xyz / n
-    th  = np.arccos(xyz[:,2])
+    th  = np.arccos(xyz[:, 2])
     st  = np.sin(th)
-    idx = (st==0)
+    idx = (st == 0)
     st[idx] = 1
-    ph  = np.arctan2(xyz[:,1]/st,xyz[:,0]/st)
+    ph  = np.arctan2(xyz[:, 1]/st, xyz[:, 0]/st)
     ph[idx] = 0
-    return th,ph
+    return th, ph
 # ----- SPHERICAL COORDS ----- #
+
 
 # ----- VECTOR STUFF --------- #
 def make_dyads(vecs):
     """calculate the dyadic vector average for a list of vectors
     len(vecs)=N, each vec is nx1
     """
-    #tens = np.array([[v[0]*v[0],v[0]*v[1],v[0]*v[2],v[1]*v[0],v[1]*v[1],v[1]*v[2],v[2]*v[0],v[2]*v[1],v[2]*v[2]] for v in vecs])
-    #tens = np.mean(tens, axis=0)
-    #tens = np.reshape(tens,(3,3))
+    # tens = np.array([[v[0]*v[0],v[0]*v[1],v[0]*v[2],v[1]*v[0],v[1]*v[1],v[1]*v[2],v[2]*v[0],v[2]*v[1],v[2]*v[2]] for v in vecs])
+    # tens = np.mean(tens, axis=0)
+    # tens = np.reshape(tens,(3,3))
 
     # this is much faster with einsum and generalises to nD tensors (so we can use the same code for 2D and 3D)
-    tens = np.einsum('ij,ik->jk',vecs, vecs)/len(vecs)
+    tens = np.einsum('ij,ik->jk', vecs, vecs)/len(vecs)
 
-    _,V = np.linalg.eigh(tens)
-    return V[:,-1]
+    _, V = np.linalg.eigh(tens)
+    return V[:, -1]
+
 
 def vec_normalise(x, axis=0):
     """Normalise vectors to unit length
@@ -95,7 +100,8 @@ def vec_normalise(x, axis=0):
     """
     return x / np.linalg.norm(x, axis=axis, keepdims=True)
 
-def prepare_mask(maskfile, roi=None, resolution=[0.4,0.4,0.4], slides=None, slide_direction='coronal'):
+
+def prepare_mask(maskfile, roi=None, resolution=[0.4, 0.4, 0.4], slides=None, slide_direction='coronal'):
     """Create mask based on existing mask, additional mask, and ROI definition
     WARNING!!!! If slides are provided, the code will assume that they are coronal!
 
@@ -110,7 +116,7 @@ def prepare_mask(maskfile, roi=None, resolution=[0.4,0.4,0.4], slides=None, slid
         from fsl.wrappers.misc import fslroi
         from fsl.wrappers import LOAD
         mask_img = Image(fslroi(mask_img, LOAD, *roi).output)
-    if not np.allclose(resolution, (0.4,0.4,0.4)):
+    if not np.allclose(resolution, (0.4, 0.4, 0.4)):
         mask_img = anisotropic_upscale_image(mask_img, resolution)
 
     # only keep voxels that intersect with the slides
@@ -122,18 +128,21 @@ def prepare_mask(maskfile, roi=None, resolution=[0.4,0.4,0.4], slides=None, slid
             if slide_is_too_big(sl_img):
                 factor = 10
             sl_resampled = resample_slide(sl_img, slide_direction=slide_direction, factor=factor)
-            sl_resampled, xform = resampleToReference(image=sl_resampled, reference=mask_img, mode='nearest', constrain=True)
-            sl_resampled[sl_resampled!=0] = 1.
+            sl_resampled, xform = resampleToReference(image=sl_resampled, reference=mask_img,
+                                                      mode='nearest', constrain=True)
+            sl_resampled[sl_resampled != 0] = 1.
             sl_resampled = Image(sl_resampled, xform=xform, header=mask_img.header)
             slides_mask += np.array(sl_resampled.data, dtype=int)
     else:
         slides_mask = np.ones_like(mask_img.data)
 
-    mask_img = Image(mask_img.data * slides_mask, header = mask_img.header)
+    mask_img = Image(mask_img.data * slides_mask, header=mask_img.header)
 
     return mask_img
 
-def prepare_mask_slidedeck(maskfile, roi=None, resolution=[0.4,0.4,0.4], slidedeck=None, slide_direction='coronal', matOrWarp=None):
+
+def prepare_mask_slidedeck(maskfile, roi=None, resolution=[0.4, 0.4, 0.4],
+                           slidedeck=None, slide_direction='coronal', matOrWarp=None):
     """Create mask based on existing mask, additional mask, and ROI definition
     WARNING!!!! If slidedeck is provided, the code will assume that it is coronal!
 
@@ -148,7 +157,7 @@ def prepare_mask_slidedeck(maskfile, roi=None, resolution=[0.4,0.4,0.4], slidede
         from fsl.wrappers.misc import fslroi
         from fsl.wrappers import LOAD
         mask_img = Image(fslroi(mask_img, LOAD, *roi).output)
-    if not np.allclose(resolution, (0.4,0.4,0.4)):
+    if not np.allclose(resolution, (0.4, 0.4, 0.4)):
         mask_img = anisotropic_upscale_image(mask_img, resolution)
 
     # only keep voxels that intersect with the slides
@@ -170,18 +179,20 @@ def prepare_mask_slidedeck(maskfile, roi=None, resolution=[0.4,0.4,0.4], slidede
         # TODO review if resample_slide is valid for slide_decks or need to downsample all 3 dimensions
         sl_resampled = resample_slide(sl_img, slide_direction=slide_direction, factor=factor)
         from fsl.utils.image.resample import resampleToReference
-        sl_resampled, xform = resampleToReference(image=sl_resampled, reference=mask_img, mode='nearest', constrain=True)
-        sl_resampled[sl_resampled!=0] = 1.
+        sl_resampled, xform = resampleToReference(image=sl_resampled, reference=mask_img,
+                                                  mode='nearest', constrain=True)
+        sl_resampled[sl_resampled != 0] = 1.
         sl_resampled = Image(sl_resampled, xform=xform, header=mask_img.header)
         slides_mask = np.array(sl_resampled.data, dtype=int)
     else:
         slides_mask = np.ones_like(mask_img.data)
 
-    mask_img = Image(mask_img.data * slides_mask, header = mask_img.header)
+    mask_img = Image(mask_img.data * slides_mask, header=mask_img.header)
 
     return mask_img
 
-def slide_is_too_big(sl_img, N_MAX = 2000):
+
+def slide_is_too_big(sl_img, N_MAX=2000):
     """Assess whether a slide is too big so it needs resampling
 
     :param sl_img: Image object
@@ -200,18 +211,21 @@ def resample_slide(sl_img, slide_direction='coronal', factor=1):
     :param factor: (int). E.g. factor=2 means voxels will be twice as big
     :return: Image object
     """
-    from fsl.utils.image.resample import resampleToReference, resampleToPixdims
+    allowed_directions = ['coronal', 'sagittal', 'axial']
+    assert slide_direction in allowed_directions, \
+        f"allowed directions: {allowed_directions} but {slide_direction} provided"
 
-    assert slide_direction in ['coronal', 'sagittal', 'axial'], f"slide_direction must be one of 'coronal', 'sagittal', or 'axial'"
+    from fsl.utils.image.resample import resampleToPixdims
+
     if factor == 1:
         return sl_img
     old_pixdim = sl_img.pixdim
     if slide_direction == 'coronal':
-        new_pixdim = [factor*old_pixdim[0],        old_pixdim[1], factor*old_pixdim[2]]
+        new_pixdim = [factor*old_pixdim[0], old_pixdim[1], factor*old_pixdim[2]]
     elif slide_direction == 'sagittal':
-        new_pixdim = [       old_pixdim[0], factor*old_pixdim[1], factor*old_pixdim[2]]
-    else: #direction == 'axial'
-        slide_direction = [factor*old_pixdim[0], factor*old_pixdim[1],        old_pixdim[2]]
+        new_pixdim = [old_pixdim[0], factor*old_pixdim[1], factor*old_pixdim[2]]
+    else:  # slide_direction == 'axial'
+        new_pixdim = [factor*old_pixdim[0], factor*old_pixdim[1], old_pixdim[2]]
     sl, xform = resampleToPixdims(sl_img, new_pixdim, order=0)
     return Image(sl, xform=xform, header=sl_img.header)
 
@@ -223,13 +237,14 @@ def upscale_image(img, target_pixdims=None):
     :return: Image object
     """
     from fsl.utils.image.resample import resampleToPixdims
-    
+
     if target_pixdims is not None:
         new_dim = np.array(target_pixdims)
     else:
         new_dim = np.array(img.pixdim)
     newimg, xform = resampleToPixdims(img, new_dim, order=0)
     return Image(newimg, xform=xform, header=img.header)
+
 
 def anisotropic_upscale_image(img, target_pixdims=None, order=0):
     """
@@ -268,19 +283,19 @@ def order_voxels(voxels, direction='coronal'):
     :return: (N,3) reordered voxels as array
     """
     allowed_directions = ['coronal', 'axial', 'sagittal']
-    assert direction.lower() in allowed_directions, f"allowed directions : {allowed_directions} but {direction} provided"
+    direction = direction.lower()
+    assert direction in allowed_directions, f"allowed directions : {allowed_directions} but {direction} provided"
 
-    if direction.lower() == 'coronal':
-        idx = np.argsort(voxels[:,1])
-    elif direction.lower() == 'axial':
-        idx = np.argsort(voxels[:,2])
+    if direction == 'coronal':
+        idx = np.argsort(voxels[:, 1])
+    elif direction == 'axial':
+        idx = np.argsort(voxels[:, 2])
     else:
-        idx = np.argsort(voxels[:,0])
-    return voxels[idx,:]
+        idx = np.argsort(voxels[:, 0])
+    return voxels[idx, :]
 
 
 # ---- Memory management ---- #
-from functools import lru_cache
 @lru_cache(maxsize=10)
 def get_data(slide):
     """ Get image data with restricted caching
@@ -289,13 +304,15 @@ def get_data(slide):
     """
     return Image(slide).data
 
+
 # Time things
-import time
 class Time(object):
     def __init__(self):
         self._start = None
+
     def tic(self):
         self._start = time.time()
+
     def toc(self):
         print(f'Elapsed time : {time.time()-self._start:.4f} seconds.')
 
@@ -329,6 +346,7 @@ def fudge_psoct_orientation(theta, angle=22.):
 
     return theta
 
+
 # ------------ DMRI Utils
 def load_bpx(bpxdir):
     """Load bedpostx theta, phi, and volume fraction samples
@@ -341,11 +359,12 @@ def load_bpx(bpxdir):
     """
     from glob import glob
     import os
-    ths = [Image(x).data for x in sorted(glob(os.path.join(bpxdir,'merged_th?samples.nii.gz')))]
-    phs = [Image(x).data for x in sorted(glob(os.path.join(bpxdir,'merged_ph?samples.nii.gz')))]
-    fs =  [Image(x).data for x in sorted(glob(os.path.join(bpxdir,'merged_f?samples.nii.gz')))]
+    ths = [Image(x).data for x in sorted(glob(os.path.join(bpxdir, 'merged_th?samples.nii.gz')))]
+    phs = [Image(x).data for x in sorted(glob(os.path.join(bpxdir, 'merged_ph?samples.nii.gz')))]
+    fs  = [Image(x).data for x in sorted(glob(os.path.join(bpxdir, 'merged_f?samples.nii.gz')))]
 
     return ths, phs, fs
+
 
 def get_bpx_voxel(vox, ths, phs, fs, outtype='angles'):
     """Extract bedpostx samples for a single voxel into vectors
@@ -365,22 +384,23 @@ def get_bpx_voxel(vox, ths, phs, fs, outtype='angles'):
         SH coefficients
     """
 
-    x,y,z      = vox
-    th_samples = np.array([th[x,y,z,:] for th in ths]).flatten()
-    ph_samples = np.array([ph[x,y,z,:] for ph in phs]).flatten()
-    f_samples  = np.array([f[x,y,z,:] for f in fs]).flatten()
+    x, y, z      = vox
+    th_samples = np.array([th[x, y, z, :] for th in ths]).flatten()
+    ph_samples = np.array([ph[x, y, z, :] for ph in phs]).flatten()
+    f_samples  = np.array([f[x, y, z, :] for f in fs]).flatten()
 
     if outtype == 'angles':
         return th_samples, ph_samples, f_samples
     if outtype == 'vectors':
-        ct,st,cp,sp=np.cos(th_samples),np.sin(th_samples),np.cos(ph_samples),np.sin(ph_samples)
-        v = np.array([st*cp,st*sp,ct]).T
+        ct, st, cp, sp = np.cos(th_samples), np.sin(th_samples), np.cos(ph_samples), np.sin(ph_samples)
+        v = np.array([st*cp, st*sp, ct]).T
         return v, f_samples
     if outtype == 'SH':
         from cmc_hybrid import fod
         SH  = fod.form_SHmat([th_samples, ph_samples], max_order=8)
+
         def lsqL2(A, y, lamb=1e-10):
-            U,S,Vt = np.linalg.svd(A, full_matrices=False)
+            U, S, Vt = np.linalg.svd(A, full_matrices=False)
             return Vt.T@((U.T@y)*(S/(S**2+lamb)))
         fod_coeffs = lsqL2(SH, f_samples, 1e0)
 
