@@ -10,6 +10,8 @@
 
 import numpy as np
 from pathlib import Path
+from fsl.scripts.imglob import imglob
+import os
 from fsl.transform.affine import concat, transform, invert
 from fsl.transform.flirt import readFlirt, fromFlirt
 from fsl.transform.nonlinear import DeformationField
@@ -17,7 +19,6 @@ from scipy.ndimage import map_coordinates
 from fsl.data.image import Image
 import fsl.data.constants as constants
 from cmc_hybrid import utils
-from pathlib import Path
 import json
 
 # TODO review and potentially replace this function with fslpy equivalent
@@ -313,6 +314,8 @@ def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck
         if str(idx) not in slide_mapping.keys():
             continue
         slide = next(Path(ori_slides_dir).glob(slide_mapping[str(idx)]), None)
+        #slide = imglob([os.path.join(ori_slides_dir, slide_mapping[str(idx)])])[0]
+
         if slide is not None:
             slide = Image(slide)
         else:
@@ -331,6 +334,7 @@ def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck
 
         if ret_slides_dir is not None:
             slide = next(Path(ret_slides_dir).glob(slide_mapping[str(idx)]), None)
+            #slide = imglob([os.path.join(ret_slides_dir, slide_mapping[str(idx)])])[0]
             if slide is not None:
                 retardance = utils.get_data(slide)
                 retardance_values = map_coordinates(retardance, pixgrid[mask,:].T, order=0)
@@ -379,34 +383,52 @@ def slidedeck_to_volume(vecs, vox, warp=None):
     F  = affine_from_jac([int(np.round(x)) for x in vox], jx, jy, jz, warp.isNeurological())
     
     # slidedeck -> dMRI re-orientation
-    all_v = concat(invert(F), vecs)
-    all_v /= np.linalg.norm(all_v, axis=0, keepdims=True)
+    all_v = concat(invert(F), vecs.T).T
+    all_v = utils.vec_normalise(all_v, axis=1)
 
-    return all_v.T
+    return all_v
 
-def slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping, direction="coronal"):
+def slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping, direction="coronal", angle_fudge=0.):
     """ 
     Align the vectors from slide to slidedeck space
+
+    theta : list of angles per slide
+    slide_index : index of the slides
+    ori_slides_dir : original slide directory (str)
+    slide_deck : Image object
+    slide_mapping : dict
+    direction : one of 'coronal' or 'sagittal'
+    angle_fudge : float
+
+    Returns:
+    Nx3 array
     """
 
     all_v = []
 
     for sl, angles in zip(slide_index, theta):
-        angles = utils.fudge_psoct_orientation(angles)
-
-        slide = next(Path(ori_slides_dir).glob(slide_mapping[str(sl)]), None)
-        if slide is not None:
-            slide = Image(slide)
-        else:
+        angles = utils.fudge_psoct_orientation(angles, angle=angle_fudge)
+        slide = imglob([os.path.join(ori_slides_dir, slide_mapping[str(sl)])])
+        if not slide:
             continue
+        else:
+            slide = Image( slide[0] )
+
+        # slide = next(Path(ori_slides_dir).glob(slide_mapping[str(sl)]), None)
+
+#        if slide is not None:
+ #           slide = Image(slide)
+  #      else:
+   #         continue
         
         # slide deck -> slide re-orientation
         F = concat(slide.getAffine('world', 'voxel'), slide_deck.getAffine('voxel', 'world'))
         v = angle_to_vector(angles, invert(F[:3,:3]), direction=direction)
         all_v.append(v)
-    all_v = np.concatenate(all_v,axis=1)
-
-    return all_v
+    if len(all_v)>0:
+        return np.concatenate(all_v, axis=1).T
+    else:
+        return None
 
 def affine_from_jac(vox, jx, jy, jz, is_neuro=False):
     x, y, z = vox
@@ -439,6 +461,7 @@ def angle_to_vector(theta, xform=None, direction="coronal"):
     if xform is not None:
         v = xform @ v
     # normalise
-    v /= np.linalg.norm(v, axis=0, keepdims=True)
+    v = utils.vec_normalise(v, axis=0)
+
     return v
 

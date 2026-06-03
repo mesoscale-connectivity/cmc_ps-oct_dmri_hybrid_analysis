@@ -49,16 +49,15 @@ def dirgen(samples=1):
 
     return points
 
-    
 
 # ----- SPHERICAL COORDS ----- #
-def pol2cart(th,ph):
+def sph2cart(th,ph):
     x = np.sin(th)*np.cos(ph)
     y = np.sin(th)*np.sin(ph)
     z = np.cos(th)
     return np.array([x,y,z]).T
 
-def cart2pol(xyz):
+def cart2sph(xyz):
     n   = np.linalg.norm(xyz,axis=1,keepdims=True)
     n[n==0] = 1
     xyz = xyz / n
@@ -385,3 +384,56 @@ def get_bpx_voxel(vox, ths, phs, fs, outtype='angles'):
         fod_coeffs = lsqL2(SH, f_samples, 1e0)
 
         return fod_coeffs
+
+
+# Fit BPX Model to some data
+def run_bpx(data, bvals, bvecs, **kwargs):
+    """ Run bedpostx on a single or N voxels
+
+    :param data: NxT array (N is number of voxels)
+    :param bvals: 1xT or Tx1 array or file
+    :param bvecs: 3xT or Tx3 array or file
+    :param kwargs: keyword parameters to be passed to FSL's xfibres
+    :return: dict
+    """
+    # Wrapper function for xfibres
+    from fsl.wrappers.wrapperutils import fileOrImage, fileOrArray, fslwrapper, applyArgStyle, SHOW_IF_TRUE, wrapperconfig
+
+    @fileOrImage('data', 'mask', 'out')
+    @fileOrArray('bvals', 'bvecs')
+    @fslwrapper
+    def xfibres(data, mask, bvals, bvecs, **kwargs):
+        cmd  = ['xfibres',
+                f'--data={data}',
+                f'--mask={mask}',
+                f'--bvecs={bvecs}',
+                f'--bvals={bvals}']
+        full_cmd = cmd + applyArgStyle('--=', valmap={'verbose': SHOW_IF_TRUE, 'forcedir': SHOW_IF_TRUE}, **kwargs)
+        return full_cmd
+
+    if data.ndim == 1:
+        data = data[None,:]
+    data = Image(data.reshape((data.shape[0], 1, 1, data.shape[-1])))
+    mask = Image(np.ones(data.shape[:-1]))
+    import fsl.utils.tempdir as tempdir
+    from glob import glob
+    import os
+    with tempdir.tempdir():
+        logdir = os.getcwd()
+
+        xfibres(data, mask, bvals, bvecs, ld=str(logdir), forcedir=True, **kwargs)
+        nfibres = len(glob(os.path.join(logdir,'f*samples.*')))
+        res = {}
+        for f in range(nfibres):
+            th   = Image(os.path.join(logdir,f'th{f+1}samples')).data.squeeze()
+            ph   = Image(os.path.join(logdir,f'ph{f+1}samples')).data.squeeze()
+            frac = Image(os.path.join(logdir,f'f{f+1}samples')).data.squeeze()
+
+            res.update({f'th{f+1}samples': th})
+            res.update({f'ph{f+1}samples': ph})
+            res.update({f'f{f+1}samples': frac})
+            res.update({f'f{f+1}': Image(os.path.join(logdir,f'mean_f{f+1}samples')).data.squeeze()})
+            res.update({f'dyads{f+1}':Image(os.path.join(logdir,f'dyads{f+1}')).data.squeeze()})
+            res.update({f'v{f+1}': sph2cart(th,ph) })
+
+    return res

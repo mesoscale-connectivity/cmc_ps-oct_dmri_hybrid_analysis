@@ -9,17 +9,17 @@ def test_dirgen():
     assert mat.shape == (128, 3)
 
 
-def test_pol2cart():
+def test_sph2cart():
     th = [0., np.pi/2.]
     ph = [0., np.pi]
-    x = utils.pol2cart(th,ph)
+    x = utils.sph2cart(th,ph)
     assert len(x) == len(th)
     assert np.all(np.isclose(x[0], np.array([0,0,1])))
     assert np.all(np.isclose(x[1], np.array([-1,0,0])))
 
-def test_cart2pol():
+def test_cart2sph():
     xyz = [[0,0,1],[-1,0,0]]
-    th, ph = utils.cart2pol(xyz)
+    th, ph = utils.cart2sph(xyz)
     assert np.all(np.isclose(th, [0., np.pi/2.]))
     assert np.all(np.isclose(ph, [0., np.pi]))
 
@@ -142,4 +142,13 @@ def test_get_bpx_voxel():
     sh           = utils.get_bpx_voxel([1,1,1], ths, phs, fs, outtype='SH')
     assert vecs.shape[1] == 3
     assert len(vecs) == len(fracs)
+
+
+def test_run_bpx():
+    bvecs = utils.dirgen(samples=30)
+    bvals = np.ones(len(bvecs))
+    bvals[0] = 0.
+    data = 100 * np.exp(-bvals * bvecs[:,0]**2)
+    res  = utils.run_bpx(data, bvals, bvecs)
+    assert len(res['f1samples'])==50
 

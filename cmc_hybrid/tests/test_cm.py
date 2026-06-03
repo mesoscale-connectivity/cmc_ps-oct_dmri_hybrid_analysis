@@ -376,3 +376,18 @@ def test_warpfield_use():
 
     assert np.allclose(vox, new_vox, atol=1)
 
+def test_slide_to_deck():
+    voxel = [24, 22, 9]
+    volume = Image(testsPath / 'testdata/volume_in_DTI')
+    slide_deck  = Image(testsPath / 'testdata/slidedeck_in_PSOCT')
+    slide_mapping  = {'1':'slice1', '2':'slice2','3':'slice3'}
+    ori_slides_dir = testsPath / 'testdata'
+    theta          = [[1,2,3], [4,5],[7,8,9]]
+    slide_index    = [1,2,3]
+    direction      = 'coronal'
+    angle_fudge    = 0.
+    all_v = cm.slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping, direction, angle_fudge)
+    assert all_v.shape == (8, 3)
+    slide_mapping  = {'1':'slice4', '2':'slice5','3':'slice6'}
+    all_v = cm.slide_to_deck(theta, [1,2,3], ori_slides_dir, slide_deck, slide_mapping, direction, angle_fudge)
+    assert all_v is None

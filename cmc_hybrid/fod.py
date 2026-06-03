@@ -31,7 +31,7 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs, retardance, thr_retarda
     V = np.linalg.svd(vecs, full_matrices=False)[-1].T  # 3x3
 
     # 2) project vecs and bpx onto plane
-    v          = utils.pol2cart(th_samples, ph_samples)  # nx3
+    v          = utils.sph2cart(th_samples, ph_samples)  # nx3
     v_plane    = utils.vec_normalise(v@V, 1)
     vecs_plane = utils.vec_normalise(vecs@V, 1)
 
@@ -112,19 +112,19 @@ def sample_from(dens, axis=0):
 # SPHERICAL HARMONICS STUFF
 # SPHERICAL HARMONICS STUFF
 from scipy.special import sph_harm_y
-def form_SHmat(coord,max_order=8, coord_system='polar'):
+def form_SHmat(coord,max_order=8, coord_system='spherical'):
     """Form a Spherical Harmonics design matrix
 
     :param coord: list or array
     :param max_order: order of the SH
-    :param coord_system: 'polar' or 'cart'
+    :param coord_system: 'spherical' or 'cart'
     :return:
     """
-    assert coord_system in ['polar', 'cart']
+    assert coord_system in ['spherical', 'cart']
     if coord_system == 'cart':
-        pol,az = utils.cart2pol(coord)
+        pol, az = utils.cart2sph(coord)
     else:
-        pol,az = coord
+        pol, az = coord
     mat   = []
     sqrt2 = np.sqrt(2.)
     for n in range(0,max_order+1,2): # only even order
@@ -197,7 +197,7 @@ def fit_sh_fod(xyz, max_order=4, symmetric=True, weights=None, kde_bw = 20., nor
     skde.fit(xyzxyz)
     # 2) Use grid to fit SH
     th, ph  = np.mgrid[0:2*np.pi:100j, 0:2*np.pi:100j]
-    bvecs   = utils.pol2cart(th, ph).reshape((-1,3))
+    bvecs   = utils.sph2cart(th, ph).reshape((-1,3))
     dens    = skde.pdf(bvecs, weights=weights)
     SHmat   = form_SHmat(bvecs, max_order=max_order, coord_system='cart')
     coeff   = np.linalg.pinv(SHmat)@dens
@@ -261,7 +261,7 @@ def plot_odf_glyph(coeff, glyph=False, samples=None, notebook=False):
 
     th, ph = np.mgrid[0:2*np.pi:100j, 0:2*np.pi:100j]
 
-    bvecs = utils.pol2cart(th, ph)
+    bvecs = utils.sph2cart(th, ph)
     X, Y, Z = bvecs[:, :, 0], bvecs[:, :, 1], bvecs[:, :, 2]
 
     if type(coeff) == np.ndarray:
@@ -284,13 +284,25 @@ def plot_odf_glyph(coeff, glyph=False, samples=None, notebook=False):
 
     fig = go.Figure()
     fig = go.Figure(data=data)
-    fig.update_layout(scene=dict(aspectmode="data"))
+    #fig.update_layout(scene=dict(aspectmode="cube",aspectratio=dict(x=1, y=1, z=1)))
+
+
+    fig.update_layout(
+    scene = dict(
+        aspectmode="cube",
+        xaxis = dict(nticks=10, range=[-1,1],),
+        yaxis = dict(nticks=10, range=[-1,1],),
+        zaxis = dict(nticks=10, range=[-1,1],),),
+        height = 700,
+    )
+
+
     # fig.show()
     return fig
 
 
 # 2D Plotting (copied from SPOT)
-def plot_FOD(bins, counts, ax=None):
+def plot_2d_fod(bins, counts, ax=None):
     """ Polar plot 2D FOD
 
     :param bins: 1D array
@@ -308,7 +320,7 @@ def plot_FOD(bins, counts, ax=None):
     ax.set_yticks([]), ax.set_xticks([])
 
 
-def plot_FOD_from_samples(A, nbins=101, normalise=False, ax=None):
+def plot_2d_fod_from_samples(A, nbins=101, normalise=False, ax=None):
     """ Plot FOD in polar
 
     :param A: (N,2) array
@@ -316,13 +328,13 @@ def plot_FOD_from_samples(A, nbins=101, normalise=False, ax=None):
     :param ax: axis to plot in
     :return: None
     """
-    counts, bins = FOD_from_samples(A, nbins)
+    counts, bins = get_2d_fod_from_samples(A, nbins)
     if normalise:
         counts = counts/np.sum(counts)
-    plot_FOD(bins, counts, ax)
+    plot_2d_fod(bins, counts, ax)
 
 # ------------ MISC ------------------- #
-def FOD_from_samples(A, nbins):
+def get_2d_fod_from_samples(A, nbins):
     """Histogram (FOD) of orientations in A (2-D).
 
     :param A 2D array (N,2)

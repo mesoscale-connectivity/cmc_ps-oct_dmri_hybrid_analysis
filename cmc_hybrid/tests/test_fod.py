@@ -9,7 +9,7 @@ def test_form_SHmat():
 
     th = [0., np.pi/4., np.pi/2.]
     ph = [0., np.pi/4., 0. ]
-    SHmat = fod.form_SHmat([th,ph], max_order=4, coord_system='polar')
+    SHmat = fod.form_SHmat([th,ph], max_order=4, coord_system='spherical')
     assert np.isclose(np.mean(SHmat), 0.056381724340180316)
 
 
