@@ -167,8 +167,8 @@ def main():
                 return np.zeros(n)
         
         # TODO remove the if statement and handle it within the new functions
-        if args.slide2vol is not None:
-            format, _ = cm._matOrNifti(args.slide2vol)
+        if slide2vol is not None:
+            format, _ = cm._matOrNifti(slide2vol)
             # for the linear case, use slide_to_volume
             if format == 'mat':
                 theta = utils.fudge_psoct_orientation(theta)
@@ -182,7 +182,7 @@ def main():
             # for the non-linear case, use slide_to_deck & slidedeck_to_volume
             elif format == 'nii':
                 # convert vecs from slide to slidedeck space
-                vecs = cm.slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping,direction=args.slice_axis)
+                vecs = cm.slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping, direction=args.slice_axis)
                 # convert vecs from slidedeck to dMRI space
                 vecs = cm.slidedeck_to_volume(vecs, vox_diff, slide2vol)
 
