@@ -92,7 +92,8 @@ def main():
     if args.mask is None:
         maskfile = os.path.join(args.bpx,'nodif_brain_mask')
 
-    mask_img = utils.prepare_mask_slidedeck(maskfile, args.roi, args.resolution, slide_deck, slide_direction=args.slice_axis, matOrWarp=args.slide2vol)
+    mask_img = utils.prepare_mask_slidedeck(maskfile, args.roi, args.resolution, slide_deck, 
+                                            slide_direction=args.slice_axis, matOrWarp=args.slide2vol)
     mask     = mask_img.data
 
     if args.verbose:
@@ -146,14 +147,18 @@ def main():
     #     dyads      = [utils.make_dyads(v) for v in vecs]
     #     return dyads
 
-    def process_voxel_hybrid(vox_both, ths, phs, fs, volume, ori_slides_dir, ret_slides_dir, retardance_threshold, slide_deck, slide_mapping, slide2vol, vol2slide, output_type, deterministic, f_thr, SHorder):
+    def process_voxel_hybrid(vox_both, ths, phs, fs,
+                             volume, ori_slides_dir, ret_slides_dir, retardance_threshold,
+                             slide_deck, slide_mapping, slice_axis, slide2vol, vol2slide,
+                             output_type, deterministic, f_thr, SHorder):
         """
         For now, simply find the slides that intersect, the pixels in the voxel, and count them
         return the number of pixels in the voxel
         """
         # Get pixels and data
         vox_coord, vox_diff = vox_both
-        pixgrid, voxgrid, slide_index, theta, retardance = cm.vox_to_pix_slidedeck(vox_diff, volume, ori_slides_dir, ret_slides_dir, slide_deck, slide_mapping, slide2vol, vol2slide,  direction=args.slice_axis)
+        pixgrid, voxgrid, slide_index, theta, retardance = cm.vox_to_pix_slidedeck(vox_diff, volume, ori_slides_dir, ret_slides_dir,
+                                                                                   slide_deck, slide_mapping, slide2vol, vol2slide, direction=slice_axis)
         # theta here ^ is defined in the pixel / slide space
 
         # flatten theta for the next check
@@ -166,32 +171,18 @@ def main():
                 n = fod.SHcoeffLen(SHorder)
                 return np.zeros(n)
         
-        # TODO remove the if statement and handle it within the new functions
-        if args.slide2vol is not None:
-            format, _ = cm._matOrNifti(args.slide2vol)
-            # for the linear case, use slide_to_volume
-            if format == 'mat':
-                theta = utils.fudge_psoct_orientation(theta)
-                # turn theta into vector and re-code in diffusion space?
-                slide0 = glob(ori_slides_dir + '/' + slide_mapping['0'])
-                if len(slide0) == 0:
-                    raise ValueError(f"No files found for index '0' in {ori_slides_dir}")
-                xform = cm.slide_to_volume(volume, Image(slide0[0]), slide_deck, slide2vol)
-                vecs  = cm.angle_to_vector(theta, xform=xform)
-            
-            # for the non-linear case, use slide_to_deck & slidedeck_to_volume
-            elif format == 'nii':
-                # convert vecs from slide to slidedeck space
-                vecs = cm.slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping,direction=args.slice_axis)
-                # convert vecs from slidedeck to dMRI space
-                vecs = cm.slidedeck_to_volume(vecs, vox_diff, slide2vol)
+        # convert vecs from slide to slidedeck space
+        vecs = cm.slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping, direction=slice_axis)
+        # convert vecs from slidedeck to dMRI space
+        vecs = cm.slidedeck_to_volume(vecs, vox_diff, slide2vol)
 
         # stop here if only psoct-dyad are requested
         if output_type == 'psoct-dyad':
             dyad  = utils.make_dyads(vecs)
             return dyad
         if output_type == 'psoct-fod':
-            fod_coef  = fod.fit_sh_fod(vecs, max_order=SHorder, symmetric=True, weights=None, kde_bw = 20., normalise = False, output_kde=False)
+            fod_coef  = fod.fit_sh_fod(vecs, max_order=SHorder, symmetric=True, weights=None,
+                                       kde_bw = 20., normalise = False, output_kde=False)
             return np.squeeze(np.array([fod_coef]))
         
         # calc_hybrid orientations
@@ -202,7 +193,8 @@ def main():
         if f_thr is not None:
             f_samples[f_samples<f_thr] = 0.
 
-        h_vecs     = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs, retardance, retardance_threshold, output_type, weighted=True, deterministic=deterministic)
+        h_vecs = fod.hybrid_vecs(th_samples, ph_samples, f_samples, vecs, retardance, retardance_threshold,
+                                 output_type, weighted=True, deterministic=deterministic)
 
         # calc dyads
         if output_type == 'h-dyad' or output_type == 'inplane-dMRI':
@@ -259,7 +251,7 @@ def main():
     func = partial(process_voxel_hybrid, ths=ths, phs=phs, fs=fs, volume=Image(maskfile),
                    ori_slides_dir=args.ori_slides_dir, ret_slides_dir=args.ret_slides_dir,
                    retardance_threshold=args.retardance_threshold,
-                   slide_deck=slide_deck, slide_mapping=slide_map,
+                   slide_deck=slide_deck, slide_mapping=slide_map, slice_axis=args.slice_axis,
                    slide2vol=slide2vol, vol2slide=vol2slide, output_type=args.output_type,
                    deterministic=args.deterministic, f_thr=args.f_thr, SHorder=args.SHorder)
 
@@ -298,6 +290,7 @@ def main():
     if args.verbose:
         print("Done.")
 
+
 # -------------- Other functions ------------------------- #
 def save_results(results, voxels, mask_img, outfile):
     """Save results are a NIFTI file
@@ -325,12 +318,13 @@ def check_args(args):
     """Check cmd line args
     """
     allowed_output_types = ['h-fod', 'h-dyad','psoct-dyad','inplane-dMRI', 'psoct-fod']
-    assert args.output_type in allowed_output_types, f"output_type must be one of {allowed_output_types}, but value given is {args.output_type}"
+    assert args.output_type in allowed_output_types, \
+        f"output_type must be one of {allowed_output_types}, but value given is {args.output_type}"
 
     allowed_slice_axes = ['coronal', 'sagittal']
-    assert args.slice_axis in allowed_slice_axes, (
-        f"slice_axis must be one of {allowed_slice_axes}, but value given is {args.slice_axis!r}"
-    )
+    assert args.slice_axis.lower() in allowed_slice_axes, \
+        f"slice_axis must be one of {allowed_slice_axes}, but value given is {args.slice_axis}"
+
 
 if __name__ == '__main__':
     main()
