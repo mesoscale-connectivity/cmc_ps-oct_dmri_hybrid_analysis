@@ -25,7 +25,7 @@ setup(
                 "flake8"],
     },
 
-    scripts=['cmc_hybrid/scripts/cmc_hybrid',
-             'cmc_hybrid/scripts/cmc_slice_mask',
-             'cmc_hybrid/scripts/cmc_bpx2fod']
+    scripts=['cmc_hybrid/scripts/cmc_hybrid.py',
+             'cmc_hybrid/scripts/cmc_slice_mask.py',
+             'cmc_hybrid/scripts/cmc_bpx2fod.py']
 )
