@@ -29,7 +29,7 @@ def parse_cmdline_args():
     p.add_argument("--ret_slides_dir", required=False,
                    help="Directory of PSOCT Retardance slides")
     p.add_argument("--retardance_threshold", required=False, type=float, default=19,
-                   help="Threshold for Rretardance images")
+                   help="Threshold for Retardance images")
     p.add_argument("--slide2vol", required=False,
                    help="psoct-to-mri transformation matrix or warp field")
     p.add_argument("--vol2slide", required=False,
@@ -297,7 +297,7 @@ def main():
 
 # -------------- Other functions ------------------------- #
 def save_results(results, voxels, mask_img, outfile):
-    """Save results are a NIFTI file
+    """Save results as a NIFTI file
 
     :param results: array
     :param voxels: array

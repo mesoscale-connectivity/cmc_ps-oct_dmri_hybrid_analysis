@@ -90,7 +90,7 @@ def hybrid_vecs(th_samples, ph_samples, f_samples, vecs, retardance, thr_retarda
 
 
 def sample_from(dens, axis=0):
-    """Sample from density defined by histrogram
+    """Sample from density defined by histogram
 
     :param dens: array
     :param axis: axis along which the density is defined
@@ -171,7 +171,7 @@ def fit_sh_fod(xyz, max_order=4, symmetric=True, weights=None, kde_bw=20., norma
 
     xyz (array)      : Nx3 input cartesian vectors
     max_order (int)  : order of spherical harmonics
-    symmetric (bool) : fit to polar-symmatric set of vectors (i.e. add negatives of input vectors)
+    symmetric (bool) : fit to polar-symmetric set of vectors (i.e. add negatives of input vectors)
     weights (array)  : weights of various sample orientations
     kde_bw (float)   : bandwidth for KDE estimation
     normalise (bool) : output normalised SH coeffs
@@ -248,7 +248,7 @@ def SHcoeffLen(L):
 
 def plot_odf_glyph(coeff, glyph=False, samples=None, notebook=False):
     """
-    Plot signal ODF glpyh
+    Plot signal ODF glyph
 
     Args:
       coeff (array)   : SH coefficients
