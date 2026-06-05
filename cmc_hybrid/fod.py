@@ -2,7 +2,7 @@
 
 # fod.py - functions dealing with FOD-related analysis
 #
-# Author: Silei Zhu, Saad Jbabdi, Amy Howard
+# Author: Silei Zhu, Saad Jbabdi, Amy Howard, Vasilis Karlaftis
 #
 # Copyright (C) 2025 University of Oxford
 # SHBASECOPYRIGHT

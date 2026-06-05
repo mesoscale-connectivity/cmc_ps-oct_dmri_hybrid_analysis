@@ -32,6 +32,14 @@ def test_make_dyads():
     v = utils.make_dyads(vecs)
     assert np.all(np.isclose(v,np.array([1,0])))
 
+def test_get_angle():
+    assert np.isclose(utils.get_angle([1,2,3], [1,2,3], deg_or_rad='deg'),0)
+    assert np.isclose(utils.get_angle([1,0,1], [1,0,-1], deg_or_rad='deg'),90)
+    assert np.isclose(utils.get_angle([1,0,1], [1,0,-1], deg_or_rad='rad'),np.pi/2.)
+    grot=utils.get_angle([[1,0,1],[1,0,-1]],
+                [[1,0,-1], [1,0,1]], deg_or_rad='deg')
+    assert np.all(np.isclose(grot, 90*np.eye(2), atol=1e-3))
+
 
 # def test_prepare_mask():
 #     brainmask = Image(testsPath / 'testdata/volume').data
@@ -123,8 +131,16 @@ def test_resample_slide():
     img = Image(testsPath / 'testdata/slice1')
     img_r = utils.resample_slide(img, slide_direction='coronal', factor=2)
     assert img_r.pixdim[0] == img.pixdim[0]*2
-    assert img_r.pixdim[2] == img.pixdim[2]*2
     assert img_r.pixdim[1] == img.pixdim[1]
+    assert img_r.pixdim[2] == img.pixdim[2]*2
+    img_r = utils.resample_slide(img, slide_direction='sagittal', factor=2)
+    assert img_r.pixdim[0] == img.pixdim[0]
+    assert img_r.pixdim[1] == img.pixdim[1]*2
+    assert img_r.pixdim[2] == img.pixdim[2]*2
+    img_r = utils.resample_slide(img, slide_direction='axial', factor=2)
+    assert img_r.pixdim[0] == img.pixdim[0]*2
+    assert img_r.pixdim[1] == img.pixdim[1]*2
+    assert img_r.pixdim[2] == img.pixdim[2]
 
 
 def test_load_bpx():

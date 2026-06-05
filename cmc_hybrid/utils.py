@@ -2,7 +2,7 @@
 
 # utils.py - helper functions and utilities
 #
-# Author: Silei Zhu, Saad Jbabdi, Amy Howard
+# Author: Silei Zhu, Saad Jbabdi, Amy Howard, Vasilis Karlaftis
 #
 # Copyright (C) 2025 University of Oxford
 # SHBASECOPYRIGHT
@@ -93,6 +93,30 @@ def vec_normalise(x, axis=0):
     :return: array
     """
     return x / np.linalg.norm(x, axis=axis, keepdims=True)
+
+def get_angle(v1, v2, deg_or_rad='deg'):
+    """Get angle between two (potentially sets of) vectors
+
+    :param v1: (N,3) or (3,) array or list
+    :param v2: (N,3) or (3,) array or list
+    :param deg_or_rad (str): one of 'deg' or 'rad'
+    :return:
+    """
+    assert deg_or_rad in ['deg', 'rad']
+    v1 = np.array(v1)
+    v2 = np.array(v2)
+    if v1.ndim == 1:
+        v1 = v1[None,:]
+    if v2.ndim == 1:
+        v2 = v2[None,:]
+    a = np.inner(vec_normalise(v1, axis=1), vec_normalise(v2, axis=1))
+    a = np.arccos(np.abs(a))
+    if deg_or_rad == 'deg':
+        a = a * 180. / np.pi
+    return a
+
+
+# ---------------
 
 def prepare_mask(maskfile, roi=None, resolution=[0.4,0.4,0.4], slides=None, slide_direction='coronal'):
     """Create mask based on existing mask, additional mask, and ROI definition
@@ -201,16 +225,16 @@ def resample_slide(sl_img, slide_direction='coronal', factor=1):
     """
     from fsl.utils.image.resample import resampleToReference, resampleToPixdims
 
-    assert slide_direction in ['coronal', 'sagittal', 'axial'], f"slide_direction must be one of 'coronal', 'sagittal', or 'axial'"
+    assert slide_direction.lower() in ['coronal', 'sagittal', 'axial'], f"slide_direction must be one of 'coronal', 'sagittal', or 'axial'"
     if factor == 1:
         return sl_img
     old_pixdim = sl_img.pixdim
-    if slide_direction == 'coronal':
+    if slide_direction.lower() == 'coronal':
         new_pixdim = [factor*old_pixdim[0],        old_pixdim[1], factor*old_pixdim[2]]
-    elif slide_direction == 'sagittal':
+    elif slide_direction.lower() == 'sagittal':
         new_pixdim = [       old_pixdim[0], factor*old_pixdim[1], factor*old_pixdim[2]]
     else: #direction == 'axial'
-        slide_direction = [factor*old_pixdim[0], factor*old_pixdim[1],        old_pixdim[2]]
+        new_pixdim = [factor*old_pixdim[0], factor*old_pixdim[1],        old_pixdim[2]]
     sl, xform = resampleToPixdims(sl_img, new_pixdim, order=0)
     return Image(sl, xform=xform, header=sl_img.header)
 

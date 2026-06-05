@@ -130,9 +130,9 @@ def slide_deck_vox_intersect(voxel, volume, slide_deck, slide2vol=None,direction
     # max_voxel = voxel.copy()
     # max_voxel[1] += np.sqrt(3)/2
 
-    if direction == "coronal":
+    if direction.lower() == "coronal":
         ax, pd = 1, slide_deck.pixdim[1]
-    elif direction == "sagittal":
+    elif direction.lower() == "sagittal":
         ax, pd = 0, slide_deck.pixdim[0]
     else:
         raise ValueError(f"direction must be 'coronal' or 'sagittal', got {direction!r}")
@@ -208,10 +208,10 @@ def get_pixgrid(voxel, volume, slide, slide2vol=None, vol2slide=None, direction=
         voxel_bounds = slide2vol.transform(voxel_bounds, 'voxel', 'world')
     voxel_bounds_pix = transform(voxel_bounds, vox2pix)
 
-    if direction == "coronal":
+    if direction.lower() == "coronal":
         imin, jmin = np.min(voxel_bounds_pix, axis=0)[::2]
         imax, jmax = np.max(voxel_bounds_pix, axis=0)[::2]
-    elif direction == "sagittal":
+    elif direction.lower() == "sagittal":
         imin, jmin = np.min(voxel_bounds_pix, axis=0)[1:3]
         imax, jmax = np.max(voxel_bounds_pix, axis=0)[1:3]
     else:
@@ -220,9 +220,9 @@ def get_pixgrid(voxel, volume, slide, slide2vol=None, vol2slide=None, direction=
     pixgrid = np.array( np.meshgrid( np.arange(imin, imax+1), np.arange(jmin, jmax+1)) )
     pixgrid = np.reshape(pixgrid, (2, -1)).T
 
-    if direction == "coronal":
+    if direction.lower() == "coronal":
         pixgrid = np.stack((pixgrid[:, 0], 0 * pixgrid[:, 0], pixgrid[:, 1]), axis=1)
-    elif direction == "sagittal":
+    elif direction.lower() == "sagittal":
         pixgrid = np.stack((0 * pixgrid[:, 0], pixgrid[:, 0], pixgrid[:, 1]), axis=1)
 
     pixgrid2vox = transform(pixgrid, invert(vox2pix))
@@ -452,9 +452,9 @@ def angle_to_vector(theta, xform=None, direction="coronal"):
     :return:
     2D array (Nx3)    
     """
-    if direction == "coronal":
+    if direction.lower() == "coronal":
         v = np.stack([np.cos(theta), np.zeros_like(theta), np.sin(theta)], axis=0)
-    elif direction == "sagittal":
+    elif direction.lower() == "sagittal":
         v = np.stack([np.zeros_like(theta), np.cos(theta), -np.sin(theta)], axis=0)
 
     # apply xform
