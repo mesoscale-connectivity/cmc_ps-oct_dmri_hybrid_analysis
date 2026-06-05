@@ -2,3 +2,6 @@ test:
   image: mambaorg/micromamba
   script:
     - bash ./.ci/unit_tests.sh
+
+  tags:
+    - docker
