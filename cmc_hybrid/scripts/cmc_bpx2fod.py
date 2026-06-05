@@ -10,11 +10,12 @@
 
 import argparse
 
+
 def parse_cmdline_args():
     p = argparse.ArgumentParser(description="CMC hybrid per-voxel processor")
 
-   # Compulsory arguments
-    p.add_argument("--bpx",required=True,
+    # Compulsory arguments
+    p.add_argument("--bpx", required=True,
                    help="location of the bedpostX folder")
     p.add_argument("-o", "--out", required=True,
                    help="prefix for output files")
@@ -26,10 +27,8 @@ def parse_cmdline_args():
     p.add_argument("-j", "--jobs", type=int,
                    help="parallel workers (default=max available)")
     p.add_argument('--verbose', required=False, action='store_true',
-                    help='print out messages')
+                   help='print out messages')
     return p.parse_args()
-
-
 
 
 def main():
@@ -45,22 +44,22 @@ def main():
     import numpy as np
     from joblib import Parallel, delayed, parallel_backend
     from functools import partial
-    from cmc_hybrid import utils, fod
+    from cmc_hybrid import fod
     # ------------------------------------------------------------------------
 
     # Load image files from database
     if args.verbose:
         print("...Prepare brain mask...")
     # Prepare mask
-    mask_img = Image(os.path.join(args.bpx,'nodif_brain_mask'))
+    mask_img = Image(os.path.join(args.bpx, 'nodif_brain_mask'))
     mask     = mask_img.data
     if args.mask is not None:
         mask = Image(args.mask).data * mask
 
     # Identify voxels to be processed
     voxels = np.argwhere(mask)
-    if len(voxels)==0:
-        raise(Exception("Found no voxels to process. Please check the mask."))
+    if len(voxels) == 0:
+        raise Exception("Found no voxels to process. Please check the mask.")
     if args.verbose:
         print(f"...Processing {len(voxels)} voxels")
 
@@ -68,30 +67,29 @@ def main():
     # All the big 4D files go here
     if args.verbose:
         print("...Loading bpx samples")
-    ths = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_th?samples.nii.gz')))]
-    phs = [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_ph?samples.nii.gz')))]
-    fs =  [Image(x).data for x in sorted(glob(os.path.join(args.bpx,'merged_f?samples.nii.gz')))]
+    ths = [Image(x).data for x in sorted(glob(os.path.join(args.bpx, 'merged_th?samples.nii.gz')))]
+    phs = [Image(x).data for x in sorted(glob(os.path.join(args.bpx, 'merged_ph?samples.nii.gz')))]
+    fs  = [Image(x).data for x in sorted(glob(os.path.join(args.bpx, 'merged_f?samples.nii.gz')))]
     if args.verbose:
         print('......loaded')
 
-    # --------- Parallalised functions --------------- #
+    # --------- Parallelised functions --------------- #
     def process_voxel(vox_coord, ths, phs, fs):
-        x,y,z      = vox_coord
-        th_samples = np.array([th[x,y,z,:] for th in ths]).flatten()
-        ph_samples = np.array([ph[x,y,z,:] for ph in phs]).flatten()
-        f_samples  = np.array([f[x,y,z,:] for f in fs]).flatten()
+        x, y, z      = vox_coord
+        th_samples = np.array([th[x, y, z, :] for th in ths]).flatten()
+        ph_samples = np.array([ph[x, y, z, :] for ph in phs]).flatten()
+        f_samples  = np.array([f[x, y, z, :] for f in fs]).flatten()
         SH  = fod.form_SHmat([th_samples, ph_samples], args.order)
         # fod_coeffs = np.dot(np.linalg.pinv(SH), f_samples/np.sum(f_samples))
 
         def lsqL2(A, y, lamb=1e-10):
-            U,S,Vt = np.linalg.svd(A, full_matrices=False)
+            U, S, Vt = np.linalg.svd(A, full_matrices=False)
             return Vt.T@((U.T@y)*(S/(S**2+lamb)))
 
         fod_coeffs = lsqL2(SH, f_samples, 1e0)
 
         return fod_coeffs
     # ------------------------------------------------------------------------------
-
 
     # Run processing for each voxel (parallelise)
     if args.jobs:
@@ -114,10 +112,9 @@ def main():
     results = np.array(results)
     shape = mask.shape+(len(results[0]),)
     tmp = np.zeros(shape).reshape((-1, shape[-1]))
-    tmp[mask.flatten()>0,:] = results
+    tmp[mask.flatten() > 0, :] = results
     tmp = np.reshape(tmp, shape)
     Image(tmp, header=mask_img.header).save(args.out)
-
 
     # Finish.
     print("Done.")
