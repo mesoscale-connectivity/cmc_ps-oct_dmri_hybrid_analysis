@@ -3,6 +3,8 @@ from pathlib import Path
 testsPath = Path(__file__).parent
 import numpy as np
 from fsl.data.image import Image
+import pytest
+import shutil
 
 def test_dirgen():
     mat = utils.dirgen(128)
@@ -160,6 +162,7 @@ def test_get_bpx_voxel():
     assert len(vecs) == len(fracs)
 
 
+@pytest.mark.skipif(not shutil.which('xfibres'), reason="FSL xfibres not available")
 def test_run_bpx():
     bvecs = utils.dirgen(samples=30)
     bvals = np.ones(len(bvecs))
