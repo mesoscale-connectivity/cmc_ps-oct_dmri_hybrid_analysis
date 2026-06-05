@@ -1,3 +1,15 @@
+# ############
+# # 1. style 
+# ############
+flake8:
+  image: mambaorg/micromamba
+  script:
+    - micromamba install -y flake8
+    - flake8 cmc_hybrid
+
+############
+# 2. test 
+############
 test:
   image: mambaorg/micromamba
   script:
