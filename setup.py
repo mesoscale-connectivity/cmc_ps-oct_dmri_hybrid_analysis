@@ -18,14 +18,18 @@ setup(
     long_description=long_description,
     long_description_content_type="text/markdown",
 
-    packages=['cmc_hybrid',],
+    packages=['cmc_hybrid', 'cmc_hybrid.scripts'],
     install_requires=install_requires,
     extras_require={
         "dev": ["pytest",
                 "flake8"],
     },
 
-    scripts=['cmc_hybrid/scripts/cmc_hybrid.py',
-             'cmc_hybrid/scripts/cmc_slice_mask.py',
-             'cmc_hybrid/scripts/cmc_bpx2fod.py']
+    entry_points={
+        'console_scripts': [
+            'cmc_hybrid = cmc_hybrid.scripts.cmc_hybrid:main',
+            'cmc_slice_mask = cmc_hybrid.scripts.cmc_slice_mask:main',
+            'cmc_bpx2fod = cmc_hybrid.scripts.cmc_bpx2fod:main',
+        ],
+    }
 )
