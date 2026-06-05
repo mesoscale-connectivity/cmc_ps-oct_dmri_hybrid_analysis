@@ -190,8 +190,8 @@ def prepare_mask_slidedeck(maskfile, roi=None, resolution=[0.4, 0.4, 0.4],
         sl_img = slidedeck
         # If a transformation matrix of warpfield is provided, then transform slidedeck to reference space
         if matOrWarp is not None:
-            from cmc_hybrid.coordinate_mapping import _matOrNifti
-            format, _ = _matOrNifti(matOrWarp)
+            from cmc_hybrid.utils import matOrNifti
+            format, _ = matOrNifti(matOrWarp)
             if format == 'mat':
                 from fsl.wrappers import applyxfm
                 sl_img = Image(applyxfm(sl_img, maskfile, matOrWarp, out=LOAD)['out'])
@@ -484,3 +484,40 @@ def run_bpx(data, bvals, bvecs, **kwargs):
             res.update({f'v{f+1}': sph2cart(th, ph)})
 
     return res
+
+
+# TODO review and potentially replace this function with fslpy equivalent
+def matOrNifti(input):
+    """Helper function to check either a .mat transformation matrix
+      or a NIfTI warpfield
+
+    :return:
+    string equal to 'mat' or 'nii'
+    boolean for file needs to be loaded (=1) or not (=0)
+    """
+    import fsl.data.constants as constants
+    from pathlib import Path
+    from fsl.transform.nonlinear import DeformationField
+
+    if input is None:
+        return 'mat', 0
+
+    if isinstance(input, Path):
+        input = str(input)
+
+    if isinstance(input, str):
+        if input.endswith('.mat'):
+            return 'mat', 1
+        elif input.endswith('.nii') or input.endswith('.nii.gz'):
+            if Image(input).intent in (constants.FSL_FNIRT_DISPLACEMENT_FIELD, constants.FSL_TOPUP_FIELD):
+                return 'nii', 1
+            raise ValueError(f"Invalid NIfTI warpfield file: indent={Image(input).intent}")
+        else:
+            raise ValueError("Input must be either a .mat or a .nii file.")
+    elif isinstance(input, np.ndarray):
+        return 'mat', 0
+    # TODO add support on nibabel Nifti1Image objects
+    elif isinstance(input, DeformationField):
+        return 'nii', 0
+    else:
+        raise ValueError("Input must be either a mat array or a NIfTI warpfield file.")

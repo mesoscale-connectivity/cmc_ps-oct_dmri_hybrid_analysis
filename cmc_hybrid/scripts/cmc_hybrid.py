@@ -224,7 +224,7 @@ def main():
     # Load transformation matrices and warp fields
     # Check the slide2vol argument type
     if args.slide2vol is not None:
-        format, _ = cm._matOrNifti(args.slide2vol)
+        format, _ = utils.matOrNifti(args.slide2vol)
         if format == 'mat':
             from fsl.transform.flirt import readFlirt, fromFlirt
             slide2vol = readFlirt(args.slide2vol)
@@ -241,7 +241,7 @@ def main():
         slide2vol = None
     # Check the vol2slide argument type
     if args.vol2slide is not None:
-        format, _ = cm._matOrNifti(args.vol2slide)
+        format, _ = utils.matOrNifti(args.vol2slide)
         if format == 'nii':
             from fsl.transform.fnirt import readFnirt
             vol2slide = readFnirt(args.vol2slide, Image(maskfile), slide_deck)
@@ -270,7 +270,7 @@ def main():
             SHorder       : {args.SHorder}
 
             volume        : {mask_img.dataSource},
-            ori_slides_dir    : {args.ori_slides_dir},
+            ori_slides_dir: {args.ori_slides_dir},
             """
         )
 

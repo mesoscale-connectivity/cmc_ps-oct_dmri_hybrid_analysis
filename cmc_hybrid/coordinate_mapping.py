@@ -16,42 +16,24 @@ from fsl.transform.affine import concat, transform, invert
 from fsl.transform.nonlinear import DeformationField
 from scipy.ndimage import map_coordinates
 from fsl.data.image import Image
-import fsl.data.constants as constants
 from cmc_hybrid import utils
+import threading
+
+# Lock used to ensure gradients are computed only once in threaded contexts
+_warp_grad_lock = threading.Lock()
 
 
-# TODO review and potentially replace this function with fslpy equivalent or move to utils???
-def _matOrNifti(input):
-    """Helper function to check either a .mat transformation matrix
-      or a NIfTI warpfield
+def _get_warp_gradients(warp):
+    """Return cached gradients for a warp, computing them once in a thread-safe way.
 
-    :return:
-    string equal to 'mat' or 'nii'
-    boolean for file needs to be loaded (=1) or not (=0)
+    The gradients are cached on the warp object as `_cached_gradients` to avoid
+    recomputing the full-image gradients on each voxel processing call.
     """
-
-    if input is None:
-        return 'mat', 0
-
-    if isinstance(input, Path):
-        input = str(input)
-
-    if isinstance(input, str):
-        if input.endswith('.mat'):
-            return 'mat', 1
-        elif input.endswith('.nii') or input.endswith('.nii.gz'):
-            if Image(input).intent in (constants.FSL_FNIRT_DISPLACEMENT_FIELD, constants.FSL_TOPUP_FIELD):
-                return 'nii', 1
-            raise ValueError(f"Invalid NIfTI warpfield file: indent={Image(input).intent}")
-        else:
-            raise ValueError("Input must be either a .mat or a .nii file.")
-    elif isinstance(input, np.ndarray):
-        return 'mat', 0
-    # TODO add support on nibabel Nifti1Image objects
-    elif isinstance(input, DeformationField):
-        return 'nii', 0
-    else:
-        raise ValueError("Input must be either a mat array or a NIfTI warpfield file.")
+    with _warp_grad_lock:
+        if hasattr(warp, '_cached_gradients'):
+            return warp._cached_gradients
+        warp._cached_gradients = tuple(np.gradient(warp.data[..., i], *warp.pixdim[:3]) for i in range(3))
+        return warp._cached_gradients
 
 
 def _world2pix(slide, world2world=None):
@@ -275,7 +257,8 @@ def slidedeck_to_volume(vecs, vox, warp=None):
     if warp is None:
         return vecs
 
-    jx, jy, jz = [np.gradient(warp.data[..., i], *warp.pixdim[:3]) for i in range(3)]
+    # Fetch cached gradients (compute once across voxels in a thread-safe way)
+    jx, jy, jz = _get_warp_gradients(warp)
 
     # Nonlinear Jacobian at this voxel
     F  = affine_from_jac([int(np.round(x)) for x in vox], jx, jy, jz, warp.isNeurological())

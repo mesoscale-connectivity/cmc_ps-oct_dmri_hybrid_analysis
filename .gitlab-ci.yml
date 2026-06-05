@@ -3,6 +3,8 @@
 # ############
 flake8:
   image: mambaorg/micromamba
+  tags:
+    - docker
   script:
     - micromamba install -y flake8
     - flake8 cmc_hybrid
@@ -12,5 +14,7 @@ flake8:
 ############
 test:
   image: mambaorg/micromamba
+  tags:
+    - docker
   script:
     - bash ./.ci/unit_tests.sh
