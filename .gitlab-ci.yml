@@ -1,7 +1,20 @@
-test:
+# ############
+# # 1. style 
+# ############
+flake8:
   image: mambaorg/micromamba
-  script:
-    - bash ./.ci/unit_tests.sh
-
   tags:
     - docker
+  script:
+    - micromamba install -y flake8
+    - flake8 cmc_hybrid
+
+############
+# 2. test 
+############
+test:
+  image: mambaorg/micromamba
+  tags:
+    - docker
+  script:
+    - bash ./.ci/unit_tests.sh

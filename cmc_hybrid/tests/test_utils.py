@@ -3,23 +3,25 @@ from pathlib import Path
 testsPath = Path(__file__).parent
 import numpy as np
 from fsl.data.image import Image
+import pytest
+import shutil
 
 def test_dirgen():
     mat = utils.dirgen(128)
     assert mat.shape == (128, 3)
 
 
-def test_pol2cart():
+def test_sph2cart():
     th = [0., np.pi/2.]
     ph = [0., np.pi]
-    x = utils.pol2cart(th,ph)
+    x = utils.sph2cart(th,ph)
     assert len(x) == len(th)
     assert np.all(np.isclose(x[0], np.array([0,0,1])))
     assert np.all(np.isclose(x[1], np.array([-1,0,0])))
 
-def test_cart2pol():
+def test_cart2sph():
     xyz = [[0,0,1],[-1,0,0]]
-    th, ph = utils.cart2pol(xyz)
+    th, ph = utils.cart2sph(xyz)
     assert np.all(np.isclose(th, [0., np.pi/2.]))
     assert np.all(np.isclose(ph, [0., np.pi]))
 
@@ -27,6 +29,19 @@ def test_make_dyads():
     vecs = [[1,0,0],[1,0,0],[1,0,0]]
     v = utils.make_dyads(vecs)
     assert np.all(np.isclose(v,np.array([1,0,0])))
+    # 2D test
+    vecs = [[1,0],[1,0]]
+    v = utils.make_dyads(vecs)
+    assert np.all(np.isclose(v,np.array([1,0])))
+
+def test_get_angle():
+    assert np.isclose(utils.get_angle([1,2,3], [1,2,3], deg_or_rad='deg'),0)
+    assert np.isclose(utils.get_angle([1,0,1], [1,0,-1], deg_or_rad='deg'),90)
+    assert np.isclose(utils.get_angle([1,0,1], [1,0,-1], deg_or_rad='rad'),np.pi/2.)
+    grot=utils.get_angle([[1,0,1],[1,0,-1]],
+                [[1,0,-1], [1,0,1]], deg_or_rad='deg')
+    assert np.all(np.isclose(grot, 90*np.eye(2), atol=1e-3))
+
 
 # def test_prepare_mask():
 #     brainmask = Image(testsPath / 'testdata/volume').data
@@ -118,6 +133,41 @@ def test_resample_slide():
     img = Image(testsPath / 'testdata/slice1')
     img_r = utils.resample_slide(img, slide_direction='coronal', factor=2)
     assert img_r.pixdim[0] == img.pixdim[0]*2
-    assert img_r.pixdim[2] == img.pixdim[2]*2
     assert img_r.pixdim[1] == img.pixdim[1]
+    assert img_r.pixdim[2] == img.pixdim[2]*2
+    img_r = utils.resample_slide(img, slide_direction='sagittal', factor=2)
+    assert img_r.pixdim[0] == img.pixdim[0]
+    assert img_r.pixdim[1] == img.pixdim[1]*2
+    assert img_r.pixdim[2] == img.pixdim[2]*2
+    img_r = utils.resample_slide(img, slide_direction='axial', factor=2)
+    assert img_r.pixdim[0] == img.pixdim[0]*2
+    assert img_r.pixdim[1] == img.pixdim[1]*2
+    assert img_r.pixdim[2] == img.pixdim[2]
+
+
+def test_load_bpx():
+    bpxdir = testsPath / 'testdata/bpx'
+    ths, phs, fs = utils.load_bpx(bpxdir)
+    for x in [ths, phs, fs]:
+        assert type(x) is list
+        assert type(x[0]) is np.ndarray
+
+def test_get_bpx_voxel():
+    bpxdir = testsPath / 'testdata/bpx'
+    ths, phs, fs = utils.load_bpx(bpxdir)
+    vecs, fracs  = utils.get_bpx_voxel([1,1,1], ths, phs, fs, outtype='vectors')
+    th, ph, f    = utils.get_bpx_voxel([1,1,1], ths, phs, fs, outtype='angles')
+    sh           = utils.get_bpx_voxel([1,1,1], ths, phs, fs, outtype='SH')
+    assert vecs.shape[1] == 3
+    assert len(vecs) == len(fracs)
+
+
+@pytest.mark.skipif(not shutil.which('xfibres'), reason="FSL xfibres not available")
+def test_run_bpx():
+    bvecs = utils.dirgen(samples=30)
+    bvals = np.ones(len(bvecs))
+    bvals[0] = 0.
+    data = 100 * np.exp(-bvals * bvecs[:,0]**2)
+    res  = utils.run_bpx(data, bvals, bvecs)
+    assert len(res['f1samples'])==50
 

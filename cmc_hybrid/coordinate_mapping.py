@@ -10,93 +10,40 @@
 
 import numpy as np
 from pathlib import Path
+from fsl.scripts.imglob import imglob
+import os
 from fsl.transform.affine import concat, transform, invert
-from fsl.transform.flirt import readFlirt, fromFlirt
 from fsl.transform.nonlinear import DeformationField
 from scipy.ndimage import map_coordinates
 from fsl.data.image import Image
-import fsl.data.constants as constants
 from cmc_hybrid import utils
-from pathlib import Path
-import json
+import threading
 
-# TODO review and potentially replace this function with fslpy equivalent
-def _matOrNifti(input):
-    """Helper function to check either a .mat transformation matrix
-      or a NIfTI warpfield
+# Lock used to ensure gradients are computed only once in threaded contexts
+_warp_grad_lock = threading.Lock()
 
-    :return:
-    string equal to 'mat' or 'nii'
-    boolean for file needs to be loaded (=1) or not (=0)
+
+def _get_warp_gradients(warp):
+    """Return cached gradients for a warp, computing them once in a thread-safe way.
+
+    The gradients are cached on the warp object as `_cached_gradients` to avoid
+    recomputing the full-image gradients on each voxel processing call.
     """
-    
-    if input is None:
-        return 'mat', 0
-
-    if isinstance(input, Path):
-        input = str(input)
-
-    if isinstance(input, str):
-        if input.endswith('.mat'):
-            return 'mat', 1
-        elif input.endswith('.nii') or input.endswith('.nii.gz'):
-            if Image(input).intent in (constants.FSL_FNIRT_DISPLACEMENT_FIELD, constants.FSL_TOPUP_FIELD):
-                return 'nii', 1
-            raise ValueError(f"Invalid NIfTI warpfield file: indent={Image(input).intent}")
-        else:
-            raise ValueError("Input must be either a .mat or a .nii file.")
-    elif isinstance(input, np.ndarray):
-        return 'mat', 0
-    # TODO add support on nibabel Nifti1Image objects
-    elif isinstance(input, DeformationField):
-        return 'nii', 0
-    else:
-        raise ValueError("Input must be either a mat array or a NIfTI warpfield file.")
+    with _warp_grad_lock:
+        if hasattr(warp, '_cached_gradients'):
+            return warp._cached_gradients
+        warp._cached_gradients = tuple(np.gradient(warp.data[..., i], *warp.pixdim[:3]) for i in range(3))
+        return warp._cached_gradients
 
 
 def _world2pix(slide, world2world=None):
     world2pix = slide.getAffine('world', 'voxel')  # this is the DTI/MRI world
     if world2world is not None:
-        world2pix = concat(world2pix, invert(world2world)) # PSOCT world-->PSOCT pix @ DTI world --> PSOCT world
+        world2pix = concat(world2pix, invert(world2world))  # PSOCT world-->PSOCT pix @ DTI world --> PSOCT world
     return world2pix
 
 
-# old method superseded by slide_deck_vox_intersect
-def slide_vox_intersect(voxel, volume, slide, slide2vol=None):
-    """Test if voxel intersects with slide(s)
-
-    WARNING!! This assumes that the data is Coronal!!!
-
-    voxel       : list or array (single voxel)
-    volume      : Image object
-    slide       : either Image object or list of Image objects
-    slide2vol   : PSOCT to DTI FLIRT affine matrix or FNIRT DeformationField object
-
-    Returns a bool or list of booleans
-    """
-    # If list provided, recursively run on list elements
-    if type(slide) == list:
-        return [slide_vox_intersect(voxel, volume, s, slide2vol) for s in slide]
-    # find if transform is linear or non-linear
-    if isinstance(slide2vol, (type(None), np.ndarray)):
-        world2pix = _world2pix(slide, slide2vol)
-        vox2world = volume.getAffine('voxel', 'world')
-        vox2pix   = concat(world2pix, vox2world)
-    elif isinstance(slide2vol, DeformationField):
-        vox2pix   = slide.getAffine('world', 'voxel')
-        voxel     = slide2vol.transform(voxel, 'voxel', 'world')
-    else:
-        raise ValueError("Argument 'slide2vol' must be either a numpy array or a DeformationField file.")
-
-    # test if near slide using y-coord
-    # calc distance between slide and centre of the voxel
-    # test that it is smaller than sqrt(3)/2*edge
-
-    dist = np.abs(transform(voxel, vox2pix))[1] * slide.pixdim[1]
-    return dist <= np.sqrt(3)/2. * np.max(volume.pixdim)
-
-
-def slide_deck_vox_intersect(voxel, volume, slide_deck, slide2vol=None,direction="coronal"):
+def slide_deck_vox_intersect(voxel, volume, slide_deck, slide2vol=None, direction="coronal"):
     """Test if voxel intersects with slide(s)
 
     WARNING!! This assumes that the data is Coronal!!!
@@ -118,7 +65,7 @@ def slide_deck_vox_intersect(voxel, volume, slide_deck, slide2vol=None,direction
         voxel     = slide2vol.transform(voxel, 'voxel', 'world')
     else:
         raise ValueError("Argument 'slide2vol' must be either a numpy array or a DeformationField file.")
-    
+
     # test if near slide using y-coord
     # calc distance between slide and centre of the voxel
     # test that it is smaller than sqrt(3)/2*edge
@@ -129,6 +76,7 @@ def slide_deck_vox_intersect(voxel, volume, slide_deck, slide2vol=None,direction
     # max_voxel = voxel.copy()
     # max_voxel[1] += np.sqrt(3)/2
 
+    direction = direction.lower()
     if direction == "coronal":
         ax, pd = 1, slide_deck.pixdim[1]
     elif direction == "sagittal":
@@ -207,6 +155,7 @@ def get_pixgrid(voxel, volume, slide, slide2vol=None, vol2slide=None, direction=
         voxel_bounds = slide2vol.transform(voxel_bounds, 'voxel', 'world')
     voxel_bounds_pix = transform(voxel_bounds, vox2pix)
 
+    direction = direction.lower()
     if direction == "coronal":
         imin, jmin = np.min(voxel_bounds_pix, axis=0)[::2]
         imax, jmax = np.max(voxel_bounds_pix, axis=0)[::2]
@@ -216,7 +165,7 @@ def get_pixgrid(voxel, volume, slide, slide2vol=None, vol2slide=None, direction=
     else:
         raise ValueError(f"direction must be 'coronal' or 'sagittal', got {direction!r}")
 
-    pixgrid = np.array( np.meshgrid( np.arange(imin, imax+1), np.arange(jmin, jmax+1)) )
+    pixgrid = np.array(np.meshgrid(np.arange(imin, imax+1), np.arange(jmin, jmax+1)))
     pixgrid = np.reshape(pixgrid, (2, -1)).T
 
     if direction == "coronal":
@@ -231,49 +180,8 @@ def get_pixgrid(voxel, volume, slide, slide2vol=None, vol2slide=None, direction=
     return pixgrid2vox, pixgrid
 
 
-def vox_to_pix(vox, volume, slides, slide_deck=None, slide2vol=None, vol2slide=None):
-    """Finds slide pixels within a voxel
-
-    vox             : 1D array of shape (3,)
-    volume          : Image object or filename
-    slides          : list of Image objects
-    slide_deck      : Image object or filename
-    slide2vol       : PSOCT to DTI FLIRT affine matrix or FNIRT DeformationField object
-    vol2slide       : DTI to PSOCT FNIRT DeformationField object
-
-    :return:
-    pixgrid         : list of pixel coords in slide space
-    voxgrid         : list of pixel coords in voxel space
-    pixgrid_data    : list of slide data within the pixels
-    """
-
-    volume = Image(volume)
-    if slide_deck is not None:
-        slide_deck = Image(slide_deck)
-    
-    #1) find the slides that intersect the voxel
-    slide_masks = slide_vox_intersect(vox, volume, slides, slide2vol)
-    #2) for each slide found, get the pixgrid (pixels surrounding the voxel)
-    pixgrid_all = []
-    voxgrid_all = []
-    pixgrid_data_all = []
-
-    for idx in range(len(slides)):
-        if slide_masks[idx]:
-            pixgrid2vox, pixgrid = get_pixgrid(vox, volume, slides[idx], slide2vol, vol2slide)
-
-            # select subset within the voxel
-            mask        = in_cube(pixgrid2vox, 1, vox)
-            pixgrid_all.extend(pixgrid[mask,:])
-            voxgrid_all.extend(pixgrid2vox[mask,:])
-            # get data
-            data = utils.get_data(slides[idx])
-            pixgrid_data_all.extend(map_coordinates(data, pixgrid[mask,:].T, order=0))
-
-    return pixgrid_all, voxgrid_all, pixgrid_data_all
-
-
-def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck, slide_mapping, slide2vol=None, vol2slide=None, direction="coronal"):
+def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck, slide_mapping,
+                         slide2vol=None, vol2slide=None, direction="coronal"):
     """Finds slide pixels within a voxel
 
     vox             : 1D array of shape (3,)
@@ -296,9 +204,9 @@ def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck
     volume = Image(volume)
     slide_deck = Image(slide_deck)
 
-    #1) find the slides that intersect the voxel
+    # 1) find the slides that intersect the voxel
     slide_masks = slide_deck_vox_intersect(vox, volume, slide_deck, slide2vol, direction=direction)
-    #2) for each slide found, get the pixgrid (pixels surrounding the voxel)
+    # 2) for each slide found, get the pixgrid (pixels surrounding the voxel)
     pixgrid_all = []
     voxgrid_all = []
     pixgrid_data_all = []
@@ -313,6 +221,8 @@ def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck
         if str(idx) not in slide_mapping.keys():
             continue
         slide = next(Path(ori_slides_dir).glob(slide_mapping[str(idx)]), None)
+        # slide = imglob([os.path.join(ori_slides_dir, slide_mapping[str(idx)])])[0]
+
         if slide is not None:
             slide = Image(slide)
         else:
@@ -321,50 +231,24 @@ def vox_to_pix_slidedeck(vox, volume, ori_slides_dir, ret_slides_dir, slide_deck
 
         # select subset within the voxel
         mask        = in_cube(pixgrid2vox, 1, vox)
-        pixgrid_all.extend(pixgrid[mask,:])
-        voxgrid_all.extend(pixgrid2vox[mask,:])
+        pixgrid_all.extend(pixgrid[mask, :])
+        voxgrid_all.extend(pixgrid2vox[mask, :])
         # get data
-        data = utils.get_data(slide)
-        pixgrid_data_all.append(map_coordinates(data, pixgrid[mask,:].T, order=0))
+        data = utils.get_data(slide.dataSource)
+        pixgrid_data_all.append(map_coordinates(data, pixgrid[mask, :].T, order=0))
         # keep track of slide index
         slide_index.append(idx)
 
         if ret_slides_dir is not None:
             slide = next(Path(ret_slides_dir).glob(slide_mapping[str(idx)]), None)
+            # slide = imglob([os.path.join(ret_slides_dir, slide_mapping[str(idx)])])[0]
             if slide is not None:
-                retardance = utils.get_data(Image(slide))
-                retardance_values = map_coordinates(retardance, pixgrid[mask,:].T, order=0)
+                retardance = utils.get_data(slide)
+                retardance_values = map_coordinates(retardance, pixgrid[mask, :].T, order=0)
                 retardance_data.extend(retardance_values)
 
     return pixgrid_all, voxgrid_all, slide_index, pixgrid_data_all, retardance_data
 
-
-# # TODO remove this and replace with the new functions
-# def slide_to_volume(volume, slide, slide_deck=None, slide2vol=None):
-#     """Calculate the xform from slide to volume
-
-#     volume      : Image object
-#     slide       : Image object
-#     slide_deck  : Image object or filename
-#     slide2vol   : filename of PSOCT_to_DTI.mat
-
-#     :return: 2D array
-#     """
-#     # TODO review if this needs changing
-#     pix2world = slide.getAffine('voxel', 'world')
-#     if slide2vol is not None and slide_deck is not None:
-#         input, load_flag = _matOrNifti(slide2vol)
-#         if input == 'mat':
-#             pix2world = concat(slide2vol, pix2world)
-#         elif input == 'nii':
-#             raise ValueError(f"Incompatible input type '{input}' for calculating the xform.")
-#         else:
-#             raise ValueError("Argument 'slide2vol' must be either a .mat or a .nii file.")
-
-#     world2vox = volume.getAffine('world', 'voxel')
-#     pix2vox   = concat(world2vox, pix2world)
-
-#     return pix2vox[:3, :3]
 
 def slidedeck_to_volume(vecs, vox, warp=None):
     """
@@ -372,53 +256,75 @@ def slidedeck_to_volume(vecs, vox, warp=None):
     """
     if warp is None:
         return vecs
-    
-    jx, jy, jz = [np.gradient(warp.data[...,i], *warp.pixdim[:3]) for i in range(3)]
+
+    # Fetch cached gradients (compute once across voxels in a thread-safe way)
+    jx, jy, jz = _get_warp_gradients(warp)
 
     # Nonlinear Jacobian at this voxel
     F  = affine_from_jac([int(np.round(x)) for x in vox], jx, jy, jz, warp.isNeurological())
-    
+
     # slidedeck -> dMRI re-orientation
-    all_v = concat(invert(F), vecs)
-    all_v /= np.linalg.norm(all_v, axis=0, keepdims=True)
+    all_v = concat(invert(F), vecs.T).T
+    all_v = utils.vec_normalise(all_v, axis=1)
 
-    return all_v.T
+    return all_v
 
-def slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping, direction="coronal"):
-    """ 
+
+def slide_to_deck(theta, slide_index, ori_slides_dir, slide_deck, slide_mapping, direction="coronal", angle_fudge=0.):
+    """
     Align the vectors from slide to slidedeck space
+
+    theta : list of angles per slide
+    slide_index : index of the slides
+    ori_slides_dir : original slide directory (str)
+    slide_deck : Image object
+    slide_mapping : dict
+    direction : one of 'coronal' or 'sagittal'
+    angle_fudge : float
+
+    Returns:
+    Nx3 array
     """
 
     all_v = []
 
     for sl, angles in zip(slide_index, theta):
-        angles = utils.fudge_psoct_orientation(angles)
-
-        slide = next(Path(ori_slides_dir).glob(slide_mapping[str(sl)]), None)
-        if slide is not None:
-            slide = Image(slide)
-        else:
+        angles = utils.fudge_psoct_orientation(angles, angle=angle_fudge)
+        slide = imglob([os.path.join(ori_slides_dir, slide_mapping[str(sl)])])
+        if not slide:
             continue
-        
+        else:
+            slide = Image(slide[0])
+
+        # slide = next(Path(ori_slides_dir).glob(slide_mapping[str(sl)]), None)
+
+        # if slide is not None:
+        #    slide = Image(slide)
+        # else:
+        #    continue
+
         # slide deck -> slide re-orientation
         F = concat(slide.getAffine('world', 'voxel'), slide_deck.getAffine('voxel', 'world'))
-        v = angle_to_vector(angles, invert(F[:3,:3]), direction=direction)
+        v = angle_to_vector(angles, invert(F[:3, :3]), direction=direction)
         all_v.append(v)
-    all_v = np.concatenate(all_v,axis=1)
+    if len(all_v) > 0:
+        return np.concatenate(all_v, axis=1).T
+    else:
+        return None
 
-    return all_v
 
 def affine_from_jac(vox, jx, jy, jz, is_neuro=False):
     x, y, z = vox
     x_sign = 1.
     if is_neuro:
         x_sign = -1.
-    Jw  = [[x_sign*jx[0][x,y,z], jx[1][x,y,z], jx[2][x,y,z]],
-           [x_sign*jy[0][x,y,z], jy[1][x,y,z], jy[2][x,y,z]], 
-           [x_sign*jz[0][x,y,z], jz[1][x,y,z], jz[2][x,y,z]]]
+    Jw  = [[x_sign*jx[0][x, y, z], jx[1][x, y, z], jx[2][x, y, z]],
+           [x_sign*jy[0][x, y, z], jy[1][x, y, z], jy[2][x, y, z]],
+           [x_sign*jz[0][x, y, z], jz[1][x, y, z], jz[2][x, y, z]]]
     Jw  = np.array(Jw)
-    aff = np.eye(3) + Jw    
+    aff = np.eye(3) + Jw
     return aff
+
 
 def angle_to_vector(theta, xform=None, direction="coronal"):
     """
@@ -428,8 +334,9 @@ def angle_to_vector(theta, xform=None, direction="coronal"):
     :param theta : 1D array or list
     :param xform : 2D array (2D-->3D transformation)
     :return:
-    2D array (Nx3)    
+    2D array (Nx3)
     """
+    direction = direction.lower()
     if direction == "coronal":
         v = np.stack([np.cos(theta), np.zeros_like(theta), np.sin(theta)], axis=0)
     elif direction == "sagittal":
@@ -439,6 +346,6 @@ def angle_to_vector(theta, xform=None, direction="coronal"):
     if xform is not None:
         v = xform @ v
     # normalise
-    v /= np.linalg.norm(v, axis=0, keepdims=True)
-    return v
+    v = utils.vec_normalise(v, axis=0)
 
+    return v
